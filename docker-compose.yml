@@ -1,0 +1,241 @@
+# ClawSQL Demo Environment - Docker Compose
+# Complete stack for MySQL cluster automation demonstration
+
+version: "3.8"
+
+services:
+  # =============================================================================
+  # ClawSQL Application
+  # =============================================================================
+  clawsql:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: clawsql
+    hostname: clawsql
+    ports:
+      - "8080:8080"
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8080
+      - API_TOKEN_SECRET=demo-secret-change-in-production
+      - ORCHESTRATOR_URL=http://orchestrator:3000
+      - PROXYSQL_HOST=proxysql
+      - PROMETHEUS_URL=http://prometheus:9090
+      - DB_HOST=mysql-primary
+      - DB_PORT=3306
+      - DB_NAME=clawsql
+      - DB_USER=root
+      - DB_PASSWORD=rootpassword
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
+      orchestrator:
+        condition: service_started
+      proxysql:
+        condition: service_started
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # MySQL Cluster (Primary + 2 Replicas)
+  # =============================================================================
+  mysql-primary:
+    image: mysql:8.0
+    container_name: mysql-primary
+    hostname: mysql-primary
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=clawsql
+      - MYSQL_USER=clawsql
+      - MYSQL_PASSWORD=clawsqlpassword
+    command: >
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-slave-updates=ON
+    volumes:
+      - mysql-primary-data:/var/lib/mysql
+      - ./init/primary.sql:/docker-entrypoint-initdb.d/01-primary.sql
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql-replica-1:
+    image: mysql:8.0
+    container_name: mysql-replica-1
+    hostname: mysql-replica-1
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+    command: >
+      --server-id=2
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-slave-updates=ON
+      --read-only=ON
+    volumes:
+      - mysql-replica-1-data:/var/lib/mysql
+      - ./init/replica.sql:/docker-entrypoint-initdb.d/01-replica.sql
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql-replica-2:
+    image: mysql:8.0
+    container_name: mysql-replica-2
+    hostname: mysql-replica-2
+    ports:
+      - "3308:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+    command: >
+      --server-id=3
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-slave-updates=ON
+      --read-only=ON
+    volumes:
+      - mysql-replica-2-data:/var/lib/mysql
+      - ./init/replica.sql:/docker-entrypoint-initdb.d/01-replica.sql
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =============================================================================
+  # Orchestrator - MySQL Topology Management
+  # =============================================================================
+  orchestrator:
+    image: openorchestrator/orchestrator:latest
+    container_name: orchestrator
+    hostname: orchestrator
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./orchestrator/orchestrator.conf.json:/etc/orchestrator.conf.json
+      - orchestrator-data:/var/lib/orchestrator
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # ProxySQL - MySQL Proxy with Routing
+  # =============================================================================
+  proxysql:
+    image: proxysql/proxysql:latest
+    container_name: proxysql
+    hostname: proxysql
+    ports:
+      - "6032:6032"  # Admin interface
+      - "6033:6033"  # MySQL traffic
+    volumes:
+      - ./proxysql/proxysql.cnf:/etc/proxysql.cnf
+    depends_on:
+      - mysql-primary
+      - mysql-replica-1
+      - mysql-replica-2
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Prometheus - Metrics Collection
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # Grafana - Visualization
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    hostname: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  clawsql-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/24
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  mysql-primary-data:
+  mysql-replica-1-data:
+  mysql-replica-2-data:
+  orchestrator-data:
+  prometheus-data:
+  grafana-data:

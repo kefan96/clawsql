@@ -1,0 +1,45 @@
+# Prometheus Configuration for ClawSQL
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'clawsql-demo'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ClawSQL API metrics
+  - job_name: 'clawsql'
+    static_configs:
+      - targets: ['clawsql:8080']
+    metrics_path: '/api/v1/monitoring/metrics/prometheus'
+
+  # MySQL Exporter (would need mysql_exporter container)
+  - job_name: 'mysql'
+    static_configs:
+      - targets:
+          - 'mysql-primary:3306'
+          - 'mysql-replica-1:3306'
+          - 'mysql-replica-2:3306'
+
+  # ProxySQL metrics (would need proxysql_exporter)
+  - job_name: 'proxysql'
+    static_configs:
+      - targets: ['proxysql:6032']
+
+  # Orchestrator metrics
+  - job_name: 'orchestrator'
+    static_configs:
+      - targets: ['orchestrator:3000']
+    metrics_path: '/api/metrics'
