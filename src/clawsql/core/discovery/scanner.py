@@ -4,9 +4,9 @@ Network scanner for MySQL instance discovery.
 
 import asyncio
 import ipaddress
-import socket
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Optional
+from typing import Any
 
 import pymysql
 
@@ -27,7 +27,7 @@ class NetworkScanner:
         mysql_port_range: tuple[int, int] = (3306, 3306),
         scan_timeout: float = 2.0,
         max_concurrent: int = 100,
-        credentials: Optional[dict[str, str]] = None,
+        credentials: dict[str, str] | None = None,
     ):
         """
         Initialize the network scanner.
@@ -44,11 +44,11 @@ class NetworkScanner:
         self.scan_timeout = scan_timeout
         self.max_concurrent = max_concurrent
         self.credentials = credentials or {}
-        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._semaphore: asyncio.Semaphore | None = None
 
     async def scan_network(
         self,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[str]:
         """
         Scan all network segments for potential MySQL hosts.
@@ -66,7 +66,7 @@ class NetworkScanner:
 
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
 
-        async def check_host(ip: str) -> Optional[str]:
+        async def check_host(ip: str) -> str | None:
             async with self._semaphore:
                 for port in range(
                     self.mysql_port_range[0], self.mysql_port_range[1] + 1
@@ -92,7 +92,7 @@ class NetworkScanner:
         self,
         host: str,
         port: int = 3306,
-    ) -> Optional[MySQLInstance]:
+    ) -> MySQLInstance | None:
         """
         Probe a single host:port for MySQL presence and gather info.
 
@@ -138,7 +138,7 @@ class NetworkScanner:
 
     async def discover_instances(
         self,
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> list[MySQLInstance]:
         """
         Full discovery pipeline: scan + probe.
@@ -217,7 +217,7 @@ class NetworkScanner:
         self,
         host: str,
         port: int,
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Connect to MySQL and probe for information.
 
@@ -306,7 +306,7 @@ class InstanceRegistry:
             return True
         return False
 
-    def get(self, instance_id: str) -> Optional[MySQLInstance]:
+    def get(self, instance_id: str) -> MySQLInstance | None:
         """Get an instance by ID."""
         return self._instances.get(instance_id)
 

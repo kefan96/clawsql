@@ -3,23 +3,66 @@ Application settings using Pydantic BaseSettings.
 """
 
 from functools import lru_cache
-from typing import Optional
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseSettings(BaseSettings):
-    """Database connection settings."""
+    """
+    Database connection settings for ClawSQL metadata storage.
+
+    Supports two backends:
+    - SQLite (default): Zero-config, file-based storage. Good for most deployments.
+    - MySQL: For users who want centralized metadata or have backup infrastructure.
+
+    Set DB_TYPE=mysql to use MySQL instead of SQLite.
+    """
 
     model_config = SettingsConfigDict(env_prefix="DB_")
 
-    host: str = Field(default="localhost", description="Database host")
-    port: int = Field(default=3306, ge=1, le=65535, description="Database port")
-    name: str = Field(default="clawsql", description="Database name")
-    user: str = Field(default="clawsql", description="Database user")
-    password: str = Field(default="", description="Database password")
-    pool_size: int = Field(default=10, ge=1, le=100, description="Connection pool size")
+    type: Literal["sqlite", "mysql"] = Field(
+        default="sqlite",
+        description="Database type: 'sqlite' (default) or 'mysql'",
+    )
+    # SQLite settings
+    sqlite_path: str = Field(
+        default="/data/clawsql.db",
+        description="Path to SQLite database file (used when type=sqlite)",
+    )
+    # MySQL settings (used when type=mysql)
+    host: str = Field(default="localhost", description="Database host (MySQL only)")
+    port: int = Field(default=3306, ge=1, le=65535, description="Database port (MySQL only)")
+    name: str = Field(default="clawsql", description="Database name (MySQL only)")
+    user: str = Field(default="clawsql", description="Database user (MySQL only)")
+    password: str = Field(default="", description="Database password (MySQL only)")
+    pool_size: int = Field(default=10, ge=1, le=100, description="Connection pool size (MySQL only)")
+
+    @property
+    def is_sqlite(self) -> bool:
+        """Check if using SQLite backend."""
+        return self.type == "sqlite"
+
+    @property
+    def is_mysql(self) -> bool:
+        """Check if using MySQL backend."""
+        return self.type == "mysql"
+
+    def get_connection_url(self) -> str:
+        """
+        Get database connection URL.
+
+        Returns:
+            Connection URL string for the configured database type
+        """
+        if self.is_sqlite:
+            return f"sqlite+aiosqlite:///{self.sqlite_path}"
+        else:
+            return (
+                f"mysql+aiomysql://{self.user}:{self.password}"
+                f"@{self.host}:{self.port}/{self.name}"
+            )
 
 
 class OrchestratorSettings(BaseSettings):
@@ -30,8 +73,8 @@ class OrchestratorSettings(BaseSettings):
     url: str = Field(default="http://orchestrator:3000", description="Orchestrator URL")
     timeout: float = Field(default=30.0, ge=1.0, description="API timeout")
     tls_enabled: bool = Field(default=False, description="Enable TLS")
-    tls_cert: Optional[str] = Field(default=None, description="TLS certificate path")
-    tls_key: Optional[str] = Field(default=None, description="TLS key path")
+    tls_cert: str | None = Field(default=None, description="TLS certificate path")
+    tls_key: str | None = Field(default=None, description="TLS key path")
 
 
 class ProxySQLSettings(BaseSettings):

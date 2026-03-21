@@ -1,10 +1,10 @@
 """Unit tests for Orchestrator client and topology management."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
 
-from clawsql.core.discovery.models import InstanceRole, InstanceState, MySQLInstance
+import pytest
+
+from clawsql.core.discovery.models import InstanceRole, InstanceState
 from clawsql.core.discovery.topology import (
     OrchestratorClient,
     OrchestratorConfig,

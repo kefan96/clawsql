@@ -1,11 +1,12 @@
 """Unit tests for network scanner and instance registry."""
 
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from clawsql.core.discovery.models import InstanceRole, InstanceState, MySQLInstance
-from clawsql.core.discovery.scanner import NetworkScanner, InstanceRegistry
+from clawsql.core.discovery.scanner import InstanceRegistry, NetworkScanner
 
 
 class TestNetworkScanner:

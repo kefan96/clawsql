@@ -2,8 +2,7 @@
 API request schemas using Pydantic.
 """
 
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,8 +13,8 @@ class InstanceBase(BaseModel):
 
     host: str = Field(..., description="MySQL instance hostname or IP")
     port: int = Field(3306, ge=1, le=65535, description="MySQL port")
-    cluster_id: Optional[str] = Field(None, description="Cluster to assign instance to")
-    labels: Optional[dict[str, str]] = Field(default_factory=dict, description="Instance labels")
+    cluster_id: str | None = Field(None, description="Cluster to assign instance to")
+    labels: dict[str, str] | None = Field(default_factory=dict, description="Instance labels")
 
 
 class InstanceCreateRequest(InstanceBase):
@@ -37,11 +36,11 @@ class InstanceDiscoverRequest(BaseModel):
         min_length=1,
         description="CIDR network segments to scan",
     )
-    port_range: Optional[tuple[int, int]] = Field(
+    port_range: tuple[int, int] | None = Field(
         (3306, 3306),
         description="Port range to scan",
     )
-    credentials_id: Optional[str] = Field(None, description="ID of stored credentials")
+    credentials_id: str | None = Field(None, description="ID of stored credentials")
 
     @field_validator("network_segments")
     @classmethod
@@ -71,11 +70,11 @@ class ClusterCreateRequest(BaseModel):
     """Request to create a new cluster."""
 
     name: str = Field(..., min_length=1, max_length=100, description="Cluster name")
-    description: Optional[str] = Field(None, description="Cluster description")
-    primary_instance: Optional[InstanceCreateRequest] = Field(
+    description: str | None = Field(None, description="Cluster description")
+    primary_instance: InstanceCreateRequest | None = Field(
         None, description="Initial primary instance"
     )
-    settings: Optional[dict[str, Any]] = Field(
+    settings: dict[str, Any] | None = Field(
         default_factory=dict, description="Cluster settings"
     )
 
@@ -83,9 +82,9 @@ class ClusterCreateRequest(BaseModel):
 class ClusterUpdateRequest(BaseModel):
     """Request to update a cluster."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = None
-    settings: Optional[dict[str, Any]] = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = None
+    settings: dict[str, Any] | None = None
 
 
 # Failover schemas
@@ -93,7 +92,7 @@ class FailoverRequest(BaseModel):
     """Request to execute a failover."""
 
     cluster_id: str = Field(..., description="Cluster to failover")
-    target_instance_id: Optional[str] = Field(
+    target_instance_id: str | None = Field(
         None, description="Specific instance to promote"
     )
     reason: str = Field(..., min_length=1, description="Reason for failover")
@@ -126,15 +125,15 @@ class ConfigRollbackRequest(BaseModel):
 class AlertAcknowledgeRequest(BaseModel):
     """Request to acknowledge an alert."""
 
-    acknowledged_by: Optional[str] = Field(None, description="User acknowledging")
-    notes: Optional[str] = Field(None, description="Acknowledgment notes")
+    acknowledged_by: str | None = Field(None, description="User acknowledging")
+    notes: str | None = Field(None, description="Acknowledgment notes")
 
 
 class AlertResolveRequest(BaseModel):
     """Request to resolve an alert."""
 
-    resolved_by: Optional[str] = Field(None, description="User resolving")
-    resolution_notes: Optional[str] = Field(None, description="Resolution notes")
+    resolved_by: str | None = Field(None, description="User resolving")
+    resolution_notes: str | None = Field(None, description="Resolution notes")
 
 
 # Token schemas
@@ -142,10 +141,10 @@ class TokenRequest(BaseModel):
     """Request to create an API token."""
 
     name: str = Field(..., description="Token name")
-    permissions: Optional[list[str]] = Field(
+    permissions: list[str] | None = Field(
         default_factory=list, description="Token permissions"
     )
-    expiry_days: Optional[int] = Field(None, ge=1, le=365, description="Days until expiry")
+    expiry_days: int | None = Field(None, ge=1, le=365, description="Days until expiry")
 
 
 class TokenRefreshRequest(BaseModel):
@@ -173,14 +172,14 @@ class PaginationParams(BaseModel):
 class InstanceFilterParams(BaseModel):
     """Filter parameters for instance listing."""
 
-    cluster_id: Optional[str] = None
-    state: Optional[str] = None
-    role: Optional[str] = None
-    health: Optional[str] = None
+    cluster_id: str | None = None
+    state: str | None = None
+    role: str | None = None
+    health: str | None = None
 
     @field_validator("state")
     @classmethod
-    def validate_state(cls, v: Optional[str]) -> Optional[str]:
+    def validate_state(cls, v: str | None) -> str | None:
         if v is None:
             return v
         valid_states = ("online", "offline", "recovering", "failed", "maintenance")
@@ -190,7 +189,7 @@ class InstanceFilterParams(BaseModel):
 
     @field_validator("role")
     @classmethod
-    def validate_role(cls, v: Optional[str]) -> Optional[str]:
+    def validate_role(cls, v: str | None) -> str | None:
         if v is None:
             return v
         valid_roles = ("primary", "replica", "unknown")
@@ -203,13 +202,13 @@ class AlertFilterParams(BaseModel):
     """Filter parameters for alert listing."""
 
     active_only: bool = Field(True, description="Show only active alerts")
-    severity: Optional[str] = None
-    instance_id: Optional[str] = None
-    check_name: Optional[str] = None
+    severity: str | None = None
+    instance_id: str | None = None
+    check_name: str | None = None
 
     @field_validator("severity")
     @classmethod
-    def validate_severity(cls, v: Optional[str]) -> Optional[str]:
+    def validate_severity(cls, v: str | None) -> str | None:
         if v is None:
             return v
         valid_severities = ("info", "warning", "critical")
@@ -222,4 +221,4 @@ class MetricsQueryParams(BaseModel):
     """Query parameters for metrics."""
 
     hours: int = Field(1, ge=1, le=24, description="Hours of history")
-    metrics: Optional[list[str]] = Field(None, description="Specific metrics to include")
+    metrics: list[str] | None = Field(None, description="Specific metrics to include")

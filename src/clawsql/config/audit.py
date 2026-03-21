@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 class AuditAction(Enum):
@@ -59,15 +59,15 @@ class AuditEntry:
     entry_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=datetime.utcnow)
     action: AuditAction = AuditAction.CONFIG_UPDATE
-    actor: Optional[str] = None
-    actor_ip: Optional[str] = None
+    actor: str | None = None
+    actor_ip: str | None = None
     resource_type: str = ""
     resource_id: str = ""
     details: dict[str, Any] = field(default_factory=dict)
-    old_value: Optional[dict[str, Any]] = None
-    new_value: Optional[dict[str, Any]] = None
+    old_value: dict[str, Any] | None = None
+    new_value: dict[str, Any] | None = None
     status: str = "success"  # success, failed, pending
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -101,7 +101,7 @@ class AuditLog:
 
     def __init__(
         self,
-        storage_path: Optional[Path] = None,
+        storage_path: Path | None = None,
         max_entries: int = 10000,
         retention_days: int = 90,
     ):
@@ -120,20 +120,20 @@ class AuditLog:
         self.retention_days = retention_days
 
         self._entries: list[AuditEntry] = []
-        self._current_file: Optional[Path] = None
+        self._current_file: Path | None = None
 
     def log(
         self,
         action: AuditAction,
         resource_type: str = "",
         resource_id: str = "",
-        actor: Optional[str] = None,
-        actor_ip: Optional[str] = None,
-        details: Optional[dict[str, Any]] = None,
-        old_value: Optional[dict[str, Any]] = None,
-        new_value: Optional[dict[str, Any]] = None,
+        actor: str | None = None,
+        actor_ip: str | None = None,
+        details: dict[str, Any] | None = None,
+        old_value: dict[str, Any] | None = None,
+        new_value: dict[str, Any] | None = None,
         status: str = "success",
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> AuditEntry:
         """
         Create an audit log entry.
@@ -184,8 +184,8 @@ class AuditLog:
         old_primary: str,
         new_primary: str,
         success: bool,
-        actor: Optional[str] = None,
-        error: Optional[str] = None,
+        actor: str | None = None,
+        error: str | None = None,
     ) -> AuditEntry:
         """
         Log a failover operation.
@@ -220,7 +220,7 @@ class AuditLog:
         config_path: str,
         old_value: Any,
         new_value: Any,
-        actor: Optional[str] = None,
+        actor: str | None = None,
         reason: str = "",
     ) -> AuditEntry:
         """
@@ -248,13 +248,13 @@ class AuditLog:
 
     def get_entries(
         self,
-        action: Optional[AuditAction] = None,
-        resource_type: Optional[str] = None,
-        resource_id: Optional[str] = None,
-        actor: Optional[str] = None,
-        status: Optional[str] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        action: AuditAction | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        actor: str | None = None,
+        status: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
         limit: int = 100,
     ) -> list[AuditEntry]:
         """
@@ -295,7 +295,7 @@ class AuditLog:
         entries.sort(key=lambda e: e.timestamp, reverse=True)
         return entries[:limit]
 
-    def get_entry(self, entry_id: str) -> Optional[AuditEntry]:
+    def get_entry(self, entry_id: str) -> AuditEntry | None:
         """
         Get a specific audit entry.
 
@@ -340,8 +340,8 @@ class AuditLog:
 
     def export(
         self,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
         format: str = "json",
     ) -> str:
         """
@@ -411,7 +411,7 @@ class AuditLog:
         # Keep most recent entries
         self._entries = self._entries[-self.max_entries :]
 
-    def clear_old_entries(self, days: Optional[int] = None) -> int:
+    def clear_old_entries(self, days: int | None = None) -> int:
         """
         Clear entries older than retention period.
 

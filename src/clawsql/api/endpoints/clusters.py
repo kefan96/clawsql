@@ -3,14 +3,13 @@ Cluster management API endpoints.
 """
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from ...core.discovery.models import InstanceRole, InstanceState, MySQLCluster, MySQLInstance
 from ..schemas.requests import (
     ClusterCreateRequest,
     ClusterUpdateRequest,
-    PaginationParams,
 )
 from ..schemas.responses import (
     ClusterListResponse,
@@ -19,7 +18,6 @@ from ..schemas.responses import (
     InstanceResponse,
     SuccessResponse,
 )
-from ...core.discovery.models import InstanceRole, InstanceState, MySQLCluster, MySQLInstance
 
 router = APIRouter()
 
@@ -38,7 +36,7 @@ def get_clusters() -> dict[str, MySQLCluster]:
     summary="List all clusters",
 )
 async def list_clusters(
-    health_status: Optional[str] = Query(None, description="Filter by health status"),
+    health_status: str | None = Query(None, description="Filter by health status"),
     clusters: dict[str, MySQLCluster] = Depends(get_clusters),
 ) -> ClusterListResponse:
     """List all managed MySQL clusters."""
@@ -268,7 +266,7 @@ def _cluster_to_response(cluster: MySQLCluster) -> ClusterResponse:
     )
 
 
-def _instance_to_response(instance: Optional[MySQLInstance]) -> Optional[InstanceResponse]:
+def _instance_to_response(instance: MySQLInstance | None) -> InstanceResponse | None:
     """Convert MySQLInstance to response schema."""
     if not instance:
         return None

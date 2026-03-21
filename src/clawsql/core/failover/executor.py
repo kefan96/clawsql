@@ -2,12 +2,11 @@
 Failover executor for MySQL cluster failover operations.
 """
 
-import asyncio
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ..discovery.models import FailoverState, MySQLCluster, MySQLInstance
 from ..discovery.topology import OrchestratorClient
@@ -22,18 +21,18 @@ class FailoverOperation:
     operation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     cluster_id: str = ""
     old_primary_id: str = ""
-    new_primary_id: Optional[str] = None
+    new_primary_id: str | None = None
     state: FailoverState = FailoverState.IDLE
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     steps: list[str] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
     manual: bool = False
     reason: str = ""
-    triggered_by: Optional[str] = None
+    triggered_by: str | None = None
 
     @property
-    def duration_seconds(self) -> Optional[float]:
+    def duration_seconds(self) -> float | None:
         """Get operation duration in seconds."""
         if not self.started_at:
             return None
@@ -85,7 +84,7 @@ class FailoverExecutor:
         self,
         orchestrator_client: OrchestratorClient,
         prometheus_exporter: PrometheusExporter,
-        config: Optional[dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ):
         """
         Initialize the failover executor.
@@ -99,7 +98,7 @@ class FailoverExecutor:
         self.prometheus = prometheus_exporter
         self.config = config or {}
 
-        self._current_operation: Optional[FailoverOperation] = None
+        self._current_operation: FailoverOperation | None = None
         self._operation_history: list[FailoverOperation] = []
         self._pre_failover_hooks: list[Callable] = []
         self._post_failover_hooks: list[Callable] = []
@@ -140,7 +139,7 @@ class FailoverExecutor:
     async def execute_manual_failover(
         self,
         cluster: MySQLCluster,
-        target_primary_id: Optional[str] = None,
+        target_primary_id: str | None = None,
         reason: str = "",
     ) -> FailoverOperation:
         """
@@ -173,7 +172,7 @@ class FailoverExecutor:
     async def select_candidate(
         self,
         cluster: MySQLCluster,
-    ) -> Optional[MySQLInstance]:
+    ) -> MySQLInstance | None:
         """
         Select the best candidate for promotion.
 
@@ -281,13 +280,13 @@ class FailoverExecutor:
         # For now, return success
         return True
 
-    def get_current_operation(self) -> Optional[FailoverOperation]:
+    def get_current_operation(self) -> FailoverOperation | None:
         """Get currently running failover operation."""
         return self._current_operation
 
     def get_operation_history(
         self,
-        cluster_id: Optional[str] = None,
+        cluster_id: str | None = None,
         limit: int = 100,
     ) -> list[FailoverOperation]:
         """
@@ -309,7 +308,7 @@ class FailoverExecutor:
             -limit:
         ]
 
-    def get_operation(self, operation_id: str) -> Optional[FailoverOperation]:
+    def get_operation(self, operation_id: str) -> FailoverOperation | None:
         """Get a specific operation by ID."""
         for op in self._operation_history:
             if op.operation_id == operation_id:

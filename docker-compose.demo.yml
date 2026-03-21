@@ -1,0 +1,117 @@
+# ClawSQL Demo MySQL Cluster
+# Run with: docker-compose -f docker-compose.yml -f docker-compose.demo.yml up -d
+#
+# This file adds a demo MySQL cluster (primary + 2 replicas) for testing.
+# Users with existing MySQL instances do NOT need this file.
+
+version: "3.8"
+
+services:
+  # =============================================================================
+  # MySQL Primary (Writer)
+  # =============================================================================
+  mysql-primary:
+    image: mysql:8.0
+    container_name: mysql-primary
+    hostname: mysql-primary
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=clawsql
+      - MYSQL_USER=clawsql
+      - MYSQL_PASSWORD=clawsqlpassword
+    command: >
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-slave-updates=ON
+    volumes:
+      - mysql-primary-data:/var/lib/mysql
+      - ./init/primary.sql:/docker-entrypoint-initdb.d/01-primary.sql
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =============================================================================
+  # MySQL Replica 1 (Reader)
+  # =============================================================================
+  mysql-replica-1:
+    image: mysql:8.0
+    container_name: mysql-replica-1
+    hostname: mysql-replica-1
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+    command: >
+      --server-id=2
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-slave-updates=ON
+      --read-only=ON
+    volumes:
+      - mysql-replica-1-data:/var/lib/mysql
+      - ./init/replica.sql:/docker-entrypoint-initdb.d/01-replica.sql
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # =============================================================================
+  # MySQL Replica 2 (Reader)
+  # =============================================================================
+  mysql-replica-2:
+    image: mysql:8.0
+    container_name: mysql-replica-2
+    hostname: mysql-replica-2
+    ports:
+      - "3308:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+    command: >
+      --server-id=3
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
+      --log-slave-updates=ON
+      --read-only=ON
+    volumes:
+      - mysql-replica-2-data:/var/lib/mysql
+      - ./init/replica.sql:/docker-entrypoint-initdb.d/01-replica.sql
+    depends_on:
+      mysql-primary:
+        condition: service_healthy
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# =============================================================================
+# Volumes for MySQL data persistence
+# =============================================================================
+volumes:
+  mysql-primary-data:
+  mysql-replica-1-data:
+  mysql-replica-2-data:

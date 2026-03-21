@@ -4,9 +4,10 @@ Failure detector for MySQL clusters.
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ..discovery.models import FailureType, MySQLCluster, MySQLInstance
 from ..monitoring.collector import MetricsCollector
@@ -26,7 +27,7 @@ class FailureEvent:
     confirmed: bool = False
     confirmation_count: int = 0
     resolved: bool = False
-    resolved_at: Optional[datetime] = None
+    resolved_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -66,7 +67,7 @@ class FailureDetector:
         self,
         health_checker: HealthChecker,
         metrics_collector: MetricsCollector,
-        config: Optional[dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ):
         """
         Initialize the failure detector.
@@ -82,7 +83,7 @@ class FailureDetector:
 
         self._failure_handlers: list[Callable[[FailureEvent], None]] = []
         self._detected_failures: dict[str, FailureEvent] = {}
-        self._detection_task: Optional[asyncio.Task] = None
+        self._detection_task: asyncio.Task | None = None
         self._running = False
         self._clusters: list[MySQLCluster] = []
 
@@ -125,7 +126,7 @@ class FailureDetector:
     async def check_primary_health(
         self,
         cluster: MySQLCluster,
-    ) -> Optional[FailureEvent]:
+    ) -> FailureEvent | None:
         """
         Check if primary is healthy.
 

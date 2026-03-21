@@ -3,7 +3,7 @@ API response schemas using Pydantic.
 """
 
 from datetime import datetime
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +22,7 @@ class ErrorResponse(BaseResponse):
 
     error: str = Field(..., description="Error code")
     message: str = Field(..., description="Error message")
-    details: Optional[dict[str, Any]] = Field(None, description="Additional details")
+    details: dict[str, Any] | None = Field(None, description="Additional details")
 
 
 class SuccessResponse(BaseResponse):
@@ -58,15 +58,15 @@ class InstanceResponse(BaseModel):
     instance_id: str
     host: str
     port: int
-    server_id: Optional[int] = None
+    server_id: int | None = None
     role: str
     state: str
-    version: Optional[str] = None
-    cluster_id: Optional[str] = None
-    replication_lag: Optional[float] = None
+    version: str | None = None
+    cluster_id: str | None = None
+    replication_lag: float | None = None
     labels: dict[str, str] = Field(default_factory=dict)
-    last_seen: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    last_seen: datetime | None = None
+    created_at: datetime | None = None
 
 
 class InstanceListResponse(PaginatedResponse[InstanceResponse]):
@@ -80,7 +80,7 @@ class InstanceMetricsResponse(BaseModel):
 
     instance_id: str
     timestamp: datetime
-    replication_lag_seconds: Optional[float] = None
+    replication_lag_seconds: float | None = None
     replication_io_running: bool = False
     replication_sql_running: bool = False
     connections_current: int = 0
@@ -105,13 +105,13 @@ class ClusterResponse(BaseModel):
 
     cluster_id: str
     name: str
-    description: Optional[str] = None
-    primary: Optional[InstanceResponse] = None
+    description: str | None = None
+    primary: InstanceResponse | None = None
     replicas: list[InstanceResponse] = Field(default_factory=list)
     instance_count: int = 0
     health_status: str = "unknown"
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class ClusterListResponse(BaseModel):
@@ -126,7 +126,7 @@ class ClusterTopologyResponse(BaseModel):
 
     cluster_id: str
     cluster_name: str
-    primary: Optional[InstanceResponse] = None
+    primary: InstanceResponse | None = None
     replicas: list[InstanceResponse] = Field(default_factory=list)
     replication_chains: list[dict[str, Any]] = Field(default_factory=list)
     topology_valid: bool = True
@@ -138,14 +138,14 @@ class FailoverResponse(BaseModel):
 
     operation_id: str
     cluster_id: str
-    old_primary_id: Optional[str] = None
-    new_primary_id: Optional[str] = None
+    old_primary_id: str | None = None
+    new_primary_id: str | None = None
     state: str
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
     steps: list[str] = Field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
     manual: bool = False
 
 
@@ -155,7 +155,7 @@ class FailoverCandidateResponse(BaseModel):
     instance_id: str
     host: str
     port: int
-    replication_lag: Optional[float] = None
+    replication_lag: float | None = None
     priority_score: float = 0.0
     is_healthy: bool = True
 
@@ -179,10 +179,10 @@ class AlertResponse(BaseModel):
     value: float = 0.0
     threshold: float = 0.0
     triggered_at: datetime
-    resolved_at: Optional[datetime] = None
+    resolved_at: datetime | None = None
     acknowledged: bool = False
-    acknowledged_by: Optional[str] = None
-    duration_seconds: Optional[float] = None
+    acknowledged_by: str | None = None
+    duration_seconds: float | None = None
 
 
 class AlertListResponse(BaseModel):
@@ -248,7 +248,7 @@ class DiscoveryResponse(BaseModel):
     instances_found: int = 0
     instances: list[InstanceResponse] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
 
 # Token response schemas
@@ -257,7 +257,7 @@ class TokenResponse(BaseModel):
 
     token: str
     token_type: str = "bearer"
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
     permissions: list[str] = Field(default_factory=list)
 
 

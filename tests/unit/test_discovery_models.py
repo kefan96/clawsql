@@ -1,7 +1,5 @@
 """Unit tests for discovery models."""
 
-import pytest
-from datetime import datetime
 
 from clawsql.core.discovery.models import (
     AlertSeverity,

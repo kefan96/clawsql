@@ -2,10 +2,11 @@
 Health checker for MySQL instances and clusters.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
 from ..discovery.models import MySQLCluster, MySQLInstance
 from .collector import InstanceMetrics
@@ -111,7 +112,7 @@ class HealthChecker:
 
     def __init__(
         self,
-        custom_checks: Optional[dict[str, HealthCheck]] = None,
+        custom_checks: dict[str, HealthCheck] | None = None,
     ):
         """
         Initialize the health checker.

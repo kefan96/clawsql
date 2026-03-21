@@ -2,29 +2,27 @@
 Monitoring API endpoints.
 """
 
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import PlainTextResponse
 
+from ...core.monitoring.alert_manager import Alert, AlertManager, AlertSeverity
+from ...core.monitoring.exporters import PrometheusExporter
 from ..schemas.requests import AlertAcknowledgeRequest, AlertResolveRequest
 from ..schemas.responses import (
     AlertListResponse,
     AlertResponse,
-    PrometheusMetricsResponse,
+    SuccessResponse,
     SystemHealthResponse,
     SystemStatsResponse,
-    SuccessResponse,
 )
-from ...core.monitoring.alert_manager import Alert, AlertManager, AlertSeverity
-from ...core.monitoring.exporters import PrometheusExporter
 
 router = APIRouter()
 
 # Global instances
-_alert_manager: Optional[AlertManager] = None
-_prometheus_exporter: Optional[PrometheusExporter] = None
+_alert_manager: AlertManager | None = None
+_prometheus_exporter: PrometheusExporter | None = None
 
 
 def get_alert_manager() -> AlertManager:
@@ -70,8 +68,8 @@ async def get_system_health() -> SystemHealthResponse:
 )
 async def list_alerts(
     active_only: bool = Query(True, description="Show only active alerts"),
-    severity: Optional[str] = Query(None, description="Filter by severity"),
-    instance_id: Optional[str] = Query(None, description="Filter by instance"),
+    severity: str | None = Query(None, description="Filter by severity"),
+    instance_id: str | None = Query(None, description="Filter by instance"),
     limit: int = Query(50, ge=1, le=200, description="Maximum alerts"),
     alert_manager: AlertManager = Depends(get_alert_manager),
 ) -> AlertListResponse:
@@ -225,7 +223,6 @@ async def metrics_websocket(websocket: WebSocket):
 
     try:
         import asyncio
-        import json
 
         while True:
             # Send mock metrics

@@ -3,7 +3,7 @@ Authentication middleware for ClawSQL API.
 """
 
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -35,7 +35,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self,
         app,
         token_manager: TokenManager,
-        public_paths: Optional[set[str]] = None,
+        public_paths: set[str] | None = None,
     ):
         """
         Initialize authentication middleware.

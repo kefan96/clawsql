@@ -1,8 +1,14 @@
+# ClawSQL ProxySQL Configuration
+# This is an empty configuration - servers are added dynamically via ClawSQL API
+#
+# When you register MySQL instances with ClawSQL, they will be automatically
+# added to ProxySQL for read/write splitting and load balancing.
+
 datadir="/var/lib/proxysql"
 
 admin_variables=
 {
-    admin_credentials="admin:admin;radmin:radmin"
+    admin_credentials="admin:admin;clawsql:clawsql"
     mysql_ifaces="0.0.0.0:6032"
     refresh_interval=2000
     web_enabled=true
@@ -23,8 +29,9 @@ mysql_variables=
     stacksize=1048576
     server_version="8.0.0"
     connect_timeout_server=3000
-    monitor_username="clawsql_monitor"
-    monitor_password="monitorpassword"
+    # Default monitor credentials - override via ClawSQL API when registering instances
+    monitor_username="monitor"
+    monitor_password="monitor"
     monitor_history=600000
     monitor_connect_interval=60000
     monitor_ping_interval=10000
@@ -37,60 +44,40 @@ mysql_variables=
     connect_retries_on_failure=10
 }
 
+# No hardcoded servers - configured dynamically via ClawSQL API
 mysql_servers=
 {
-    {
-        address="mysql-primary"
-        port=3306
-        hostgroup_id=10
-        max_connections=100
-        weight=1
-    },
-    {
-        address="mysql-replica-1"
-        port=3306
-        hostgroup_id=20
-        max_connections=100
-        weight=1
-    },
-    {
-        address="mysql-replica-2"
-        port=3306
-        hostgroup_id=20
-        max_connections=100
-        weight=1
-    }
 }
 
+# No hardcoded users - configured dynamically via ClawSQL API
 mysql_users=
 {
-    {
-        username="root"
-        password="rootpassword"
-        default_hostgroup=10
-        transaction_persistent=true
-    },
-    {
-        username="app"
-        password="apppassword"
-        default_hostgroup=10
-        transaction_persistent=true
-    }
 }
 
+# Default query rules for read/write splitting
+# Rule 1: SELECT queries go to reader hostgroup (20)
+# Rule 2: SELECT ... FOR UPDATE goes to writer hostgroup (10)
+# Rule 100: All other queries go to writer hostgroup (10)
 mysql_query_rules=
 {
     {
         rule_id=1
+        active=1
+        match_pattern="^SELECT.*FOR UPDATE"
+        destination_hostgroup=10
+        apply=1
+    },
+    {
+        rule_id=2
         active=1
         match_pattern="^SELECT"
         destination_hostgroup=20
         apply=1
     },
     {
-        rule_id=2
+        rule_id=100
         active=1
-        match_pattern="^SELECT.*FOR UPDATE"
+        match_pattern=".*"
         destination_hostgroup=10
         apply=1
     }
@@ -101,11 +88,14 @@ scheduler=
     enabled=false
 }
 
+# Replication hostgroups for automatic read/write splitting
+# Writer hostgroup: 10
+# Reader hostgroup: 20
 mysql_replication_hostgroups=
 {
     {
         writer_hostgroup=10
         reader_hostgroup=20
-        comment="clawsql cluster"
+        comment="clawsql managed cluster"
     }
 }

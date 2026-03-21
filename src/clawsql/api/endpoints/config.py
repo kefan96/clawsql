@@ -3,23 +3,22 @@ Configuration API endpoints.
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from ..schemas.requests import ConfigUpdateRequest, ConfigRollbackRequest
+from ...config.versioning import ConfigStore
+from ..schemas.requests import ConfigUpdateRequest
 from ..schemas.responses import (
     ConfigDiffResponse,
     ConfigHistoryResponse,
     ConfigResponse,
-    SuccessResponse,
 )
-from ...config.versioning import ConfigStore, ConfigVersion
 
 router = APIRouter()
 
 # Global config store
-_config_store: Optional[ConfigStore] = None
+_config_store: ConfigStore | None = None
 
 
 def get_config_store() -> ConfigStore:

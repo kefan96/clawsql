@@ -1,8 +1,9 @@
 """Unit tests for monitoring module - collector, health_checker, alert_manager, exporters."""
 
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from clawsql.core.discovery.models import (
     InstanceRole,
@@ -10,15 +11,15 @@ from clawsql.core.discovery.models import (
     MySQLCluster,
     MySQLInstance,
 )
+from clawsql.core.monitoring.alert_manager import Alert, AlertManager, AlertSeverity
 from clawsql.core.monitoring.collector import InstanceMetrics, MetricsCollector
+from clawsql.core.monitoring.exporters import PrometheusExporter
 from clawsql.core.monitoring.health_checker import (
     HealthCheck,
     HealthChecker,
     HealthCheckResult,
     HealthStatus,
 )
-from clawsql.core.monitoring.alert_manager import Alert, AlertManager, AlertSeverity
-from clawsql.core.monitoring.exporters import PrometheusExporter
 
 
 class TestInstanceMetrics:

@@ -2,7 +2,6 @@
 Prometheus metrics exporter.
 """
 
-from typing import Optional
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, Info
 
@@ -20,7 +19,7 @@ class PrometheusExporter:
     operations and MySQL cluster state.
     """
 
-    def __init__(self, registry: Optional[CollectorRegistry] = None):
+    def __init__(self, registry: CollectorRegistry | None = None):
         """
         Initialize the Prometheus exporter.
 

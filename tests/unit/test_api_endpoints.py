@@ -1,13 +1,11 @@
 """Unit tests for API endpoints."""
 
+
 import pytest
-from datetime import datetime
-from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
-from clawsql.core.discovery.models import InstanceRole, InstanceState, MySQLInstance
-from clawsql.main import create_app
 from clawsql.config.settings import Settings
+from clawsql.main import create_app
 
 
 class TestInstanceEndpoints:

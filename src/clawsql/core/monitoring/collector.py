@@ -5,7 +5,7 @@ Metrics collector for MySQL instances.
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from ..discovery.models import MySQLInstance
 
@@ -18,10 +18,10 @@ class InstanceMetrics:
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
     # Replication metrics
-    replication_lag_seconds: Optional[float] = None
+    replication_lag_seconds: float | None = None
     replication_io_running: bool = False
     replication_sql_running: bool = False
-    seconds_behind_master: Optional[float] = None
+    seconds_behind_master: float | None = None
 
     # Connection metrics
     connections_current: int = 0
@@ -92,7 +92,7 @@ class MetricsCollector:
         self,
         collection_interval: float = 15.0,
         retention_hours: int = 24,
-        connection_factory: Optional[callable] = None,
+        connection_factory: callable | None = None,
     ):
         """
         Initialize the metrics collector.
@@ -106,7 +106,7 @@ class MetricsCollector:
         self.retention_hours = retention_hours
         self.connection_factory = connection_factory
         self._metrics_history: dict[str, list[InstanceMetrics]] = {}
-        self._collection_task: Optional[asyncio.Task] = None
+        self._collection_task: asyncio.Task | None = None
         self._running = False
 
     async def start(self, instances: list[MySQLInstance]) -> None:
@@ -186,7 +186,7 @@ class MetricsCollector:
     def get_latest_metrics(
         self,
         instance_id: str,
-    ) -> Optional[InstanceMetrics]:
+    ) -> InstanceMetrics | None:
         """
         Get most recent metrics for an instance.
 
@@ -242,7 +242,7 @@ class MetricsCollector:
         # Placeholder - real implementation would query MySQL
         return {}
 
-    async def _query_replication(self, conn: Any) -> Optional[dict[str, Any]]:
+    async def _query_replication(self, conn: Any) -> dict[str, Any] | None:
         """Query replication status."""
         # Placeholder - real implementation would query MySQL
         return None
@@ -283,7 +283,7 @@ class MetricsCollector:
     def _parse_replication(
         self,
         metrics: InstanceMetrics,
-        replication: Optional[dict[str, Any]],
+        replication: dict[str, Any] | None,
     ) -> InstanceMetrics:
         """Parse replication status into metrics."""
         if replication:

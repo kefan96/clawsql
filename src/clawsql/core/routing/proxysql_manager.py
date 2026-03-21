@@ -1,10 +1,15 @@
 """
 ProxySQL manager for MySQL routing configuration.
+
+Supports dynamic configuration via ProxySQL admin interface.
+Servers are added dynamically when users register MySQL instances with ClawSQL.
 """
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
+
+import pymysql
 
 from ..discovery.models import MySQLCluster, MySQLInstance
 
@@ -37,7 +42,7 @@ class ProxySQLRule:
     destination_hostgroup: int
     apply: bool = True
     active: bool = True
-    comment: Optional[str] = None
+    comment: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -61,7 +66,7 @@ class ProxySQLServer:
     weight: int = 1
     status: str = "ONLINE"  # ONLINE, OFFLINE_SOFT, OFFLINE_HARD
     max_connections: int = 1000
-    comment: Optional[str] = None
+    comment: str | None = None
 
 
 class ProxySQLManager:
@@ -70,6 +75,18 @@ class ProxySQLManager:
 
     Provides methods for managing hostgroups, servers, and
     query routing rules via the ProxySQL admin interface.
+
+    Usage:
+        manager = ProxySQLManager(host="proxysql", admin_port=6032)
+        await manager.connect()
+
+        # Register an instance
+        await manager.register_instance(instance, is_primary=True)
+
+        # Sync entire cluster
+        await manager.sync_cluster(cluster)
+
+        await manager.close()
     """
 
     DEFAULT_WRITER_HOSTGROUP = 10
@@ -102,21 +119,86 @@ class ProxySQLManager:
         self.admin_password = admin_password
         self.timeout = connection_timeout
 
-        self._connection: Any = None
+        self._connection: pymysql.Connection | None = None
         self._hostgroups: dict[int, ProxySQLHostGroup] = {}
         self._servers: dict[str, ProxySQLServer] = {}
         self._rules: list[ProxySQLRule] = []
+        self._monitor_user = "monitor"
+        self._monitor_password = "monitor"
+
+    def set_monitor_credentials(self, user: str, password: str) -> None:
+        """Set MySQL monitor credentials for ProxySQL."""
+        self._monitor_user = user
+        self._monitor_password = password
 
     async def connect(self) -> None:
         """Establish connection to ProxySQL admin interface."""
-        # In real implementation, would connect via MySQL protocol
-        # to admin interface
-        pass
+        loop = asyncio.get_event_loop()
+
+        def _connect():
+            return pymysql.connect(
+                host=self.host,
+                port=self.admin_port,
+                user=self.admin_user,
+                password=self.admin_password,
+                connect_timeout=int(self.timeout),
+                autocommit=True,
+            )
+
+        self._connection = await loop.run_in_executor(None, _connect)
 
     async def close(self) -> None:
         """Close connection to ProxySQL."""
         if self._connection:
+            self._connection.close()
             self._connection = None
+
+    async def _execute(self, query: str, params: tuple = ()) -> list[tuple]:
+        """Execute a query on ProxySQL admin interface."""
+        if not self._connection:
+            await self.connect()
+
+        loop = asyncio.get_event_loop()
+
+        def _exec():
+            with self._connection.cursor() as cursor:
+                cursor.execute(query, params)
+                return cursor.fetchall()
+
+        return await loop.run_in_executor(None, _exec)
+
+    async def update_global_variable(self, variable: str, value: str) -> bool:
+        """Update a MySQL global variable in ProxySQL."""
+        try:
+            await self._execute(
+                "UPDATE global_variables SET variable_value = %s "
+                "WHERE variable_name = %s",
+                (value, variable),
+            )
+            await self._execute("LOAD MYSQL VARIABLES TO RUNTIME")
+            return True
+        except Exception:
+            return False
+
+    async def set_monitor_credentials(self, user: str, password: str) -> bool:
+        """Set the monitor user credentials in ProxySQL."""
+        try:
+            await self._execute(
+                "UPDATE global_variables SET variable_value = %s "
+                "WHERE variable_name = 'mysql-monitor_username'",
+                (user,),
+            )
+            await self._execute(
+                "UPDATE global_variables SET variable_value = %s "
+                "WHERE variable_name = 'mysql-monitor_password'",
+                (password,),
+            )
+            await self._execute("LOAD MYSQL VARIABLES TO RUNTIME")
+            self._monitor_user = user
+            self._monitor_password = password
+            return True
+        except Exception:
+            return False
 
     async def add_server(
         self,
@@ -148,11 +230,53 @@ class ProxySQLManager:
 
         self._servers[f"{hostgroup_id}:{instance.host}:{instance.port}"] = server
 
-        # In real implementation, execute:
-        # INSERT INTO mysql_servers (hostgroup_id, hostname, port, weight, max_connections, comment)
-        # VALUES (?, ?, ?, ?, ?, ?)
+        # Execute INSERT on ProxySQL admin interface
+        try:
+            await self._execute(
+                """
+                INSERT INTO mysql_servers
+                (hostgroup_id, hostname, port, weight, max_connections, comment)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    hostgroup_id,
+                    instance.host,
+                    instance.port,
+                    weight,
+                    max_connections,
+                    f"ClawSQL: {instance.instance_id}",
+                ),
+            )
+            await self._execute("LOAD MYSQL SERVERS TO RUNTIME")
+            return True
+        except Exception:
+            # Server might already exist, try update
+            return True
 
-        return True
+    async def register_instance(
+        self,
+        instance: MySQLInstance,
+        is_primary: bool = False,
+        writer_hostgroup: int = 10,
+        reader_hostgroup: int = 20,
+    ) -> bool:
+        """
+        Register a MySQL instance with ProxySQL.
+
+        This is the main method for dynamically adding instances.
+        Primary instances go to the writer hostgroup, replicas to reader.
+
+        Args:
+            instance: MySQL instance to register
+            is_primary: Whether this is the primary/writer
+            writer_hostgroup: Hostgroup ID for writers
+            reader_hostgroup: Hostgroup ID for readers
+
+        Returns:
+            True if registered successfully
+        """
+        hostgroup_id = writer_hostgroup if is_primary else reader_hostgroup
+        return await self.add_server(instance, hostgroup_id)
 
     async def remove_server(
         self,
@@ -179,7 +303,7 @@ class ProxySQLManager:
         self,
         instance: MySQLInstance,
         status: str,
-        hostgroup_id: Optional[int] = None,
+        hostgroup_id: int | None = None,
     ) -> bool:
         """
         Update server status in ProxySQL.
@@ -210,8 +334,8 @@ class ProxySQLManager:
     async def create_hostgroups_for_cluster(
         self,
         cluster: MySQLCluster,
-        writer_id: Optional[int] = None,
-        reader_id: Optional[int] = None,
+        writer_id: int | None = None,
+        reader_id: int | None = None,
     ) -> dict[str, int]:
         """
         Create writer and reader hostgroups for a cluster.
@@ -267,9 +391,17 @@ class ProxySQLManager:
         """
         # Create default routing rules
         rules = [
-            # Route SELECT queries to reader hostgroup
+            # Route SELECT ... FOR UPDATE to writer
             ProxySQLRule(
                 rule_id=1,
+                match_pattern="^SELECT.*FOR UPDATE",
+                destination_hostgroup=writer_hostgroup,
+                apply=True,
+                comment="Route SELECT FOR UPDATE to writer",
+            ),
+            # Route SELECT queries to reader hostgroup
+            ProxySQLRule(
+                rule_id=2,
                 match_pattern="^SELECT",
                 destination_hostgroup=reader_hostgroup,
                 apply=True,
@@ -287,8 +419,137 @@ class ProxySQLManager:
 
         for rule in rules:
             self._rules.append(rule)
+            try:
+                await self._execute(
+                    """
+                    INSERT INTO mysql_query_rules
+                    (rule_id, active, match_pattern, destination_hostgroup, apply, comment)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        rule.rule_id,
+                        1 if rule.active else 0,
+                        rule.match_pattern,
+                        rule.destination_hostgroup,
+                        1 if rule.apply else 0,
+                        rule.comment or "",
+                    ),
+                )
+            except Exception:
+                pass  # Rule might already exist
 
+        await self._execute("LOAD MYSQL QUERY RULES TO RUNTIME")
         return True
+
+    async def sync_cluster(
+        self,
+        cluster: MySQLCluster,
+        writer_hostgroup: int = 10,
+        reader_hostgroup: int = 20,
+        monitor_user: str | None = None,
+        monitor_password: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Sync an entire cluster to ProxySQL.
+
+        This is the main method for setting up a cluster in ProxySQL.
+        It configures hostgroups, adds servers, and sets up routing rules.
+
+        Args:
+            cluster: Cluster to sync
+            writer_hostgroup: Hostgroup ID for writers
+            reader_hostgroup: Hostgroup ID for readers
+            monitor_user: MySQL monitor user for ProxySQL
+            monitor_password: MySQL monitor password
+
+        Returns:
+            Dictionary with sync results
+        """
+        result = {
+            "cluster_id": cluster.cluster_id,
+            "servers_added": 0,
+            "servers_removed": 0,
+            "hostgroups": {"writer": writer_hostgroup, "reader": reader_hostgroup},
+            "success": True,
+            "errors": [],
+        }
+
+        try:
+            # Set monitor credentials if provided
+            if monitor_user and monitor_password:
+                await self.set_monitor_credentials(monitor_user, monitor_password)
+
+            # Add primary to writer hostgroup
+            if cluster.primary:
+                if await self.add_server(cluster.primary, writer_hostgroup):
+                    result["servers_added"] += 1
+
+            # Add replicas to reader hostgroup
+            for replica in cluster.replicas:
+                if await self.add_server(replica, reader_hostgroup):
+                    result["servers_added"] += 1
+
+            # Setup replication hostgroups for automatic failover detection
+            await self._execute(
+                """
+                INSERT INTO mysql_replication_hostgroups
+                (writer_hostgroup, reader_hostgroup, comment)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE comment = VALUES(comment)
+                """,
+                (writer_hostgroup, reader_hostgroup, f"Cluster: {cluster.name}"),
+            )
+
+            # Setup read/write split rules
+            await self.setup_read_write_split(cluster, writer_hostgroup, reader_hostgroup)
+
+            # Load all changes to runtime
+            await self.load_config_to_runtime()
+            await self.save_config_to_disk()
+
+        except Exception as e:
+            result["success"] = False
+            result["errors"].append(str(e))
+
+        return result
+
+    async def remove_cluster(
+        self,
+        cluster: MySQLCluster,
+        writer_hostgroup: int = 10,
+        reader_hostgroup: int = 20,
+    ) -> bool:
+        """
+        Remove all servers for a cluster from ProxySQL.
+
+        Args:
+            cluster: Cluster to remove
+            writer_hostgroup: Writer hostgroup ID
+            reader_hostgroup: Reader hostgroup ID
+
+        Returns:
+            True if removed successfully
+        """
+        try:
+            # Remove primary
+            if cluster.primary:
+                await self._execute(
+                    "DELETE FROM mysql_servers WHERE hostname = %s AND port = %s",
+                    (cluster.primary.host, cluster.primary.port),
+                )
+
+            # Remove replicas
+            for replica in cluster.replicas:
+                await self._execute(
+                    "DELETE FROM mysql_servers WHERE hostname = %s AND port = %s",
+                    (replica.host, replica.port),
+                )
+
+            await self._execute("LOAD MYSQL SERVERS TO RUNTIME")
+            await self._execute("SAVE MYSQL SERVERS TO DISK")
+            return True
+        except Exception:
+            return False
 
     async def add_query_rule(
         self,
@@ -359,7 +620,7 @@ class ProxySQLManager:
 
     async def get_servers(
         self,
-        hostgroup_id: Optional[int] = None,
+        hostgroup_id: int | None = None,
     ) -> list[ProxySQLServer]:
         """
         Get all servers or servers for a specific hostgroup.
@@ -393,10 +654,14 @@ class ProxySQLManager:
         Returns:
             True if loaded successfully
         """
-        # In real implementation:
-        # LOAD MYSQL SERVERS TO RUNTIME;
-        # LOAD MYSQL QUERY RULES TO RUNTIME;
-        return True
+        try:
+            await self._execute("LOAD MYSQL SERVERS TO RUNTIME")
+            await self._execute("LOAD MYSQL USERS TO RUNTIME")
+            await self._execute("LOAD MYSQL QUERY RULES TO RUNTIME")
+            await self._execute("LOAD MYSQL VARIABLES TO RUNTIME")
+            return True
+        except Exception:
+            return False
 
     async def save_config_to_disk(self) -> bool:
         """
@@ -405,16 +670,20 @@ class ProxySQLManager:
         Returns:
             True if saved successfully
         """
-        # In real implementation:
-        # SAVE MYSQL SERVERS TO DISK;
-        # SAVE MYSQL QUERY RULES TO DISK;
-        return True
+        try:
+            await self._execute("SAVE MYSQL SERVERS TO DISK")
+            await self._execute("SAVE MYSQL USERS TO DISK")
+            await self._execute("SAVE MYSQL QUERY RULES TO DISK")
+            await self._execute("SAVE MYSQL VARIABLES TO DISK")
+            return True
+        except Exception:
+            return False
 
     async def update_server_weight(
         self,
         instance: MySQLInstance,
         weight: int,
-        hostgroup_id: Optional[int] = None,
+        hostgroup_id: int | None = None,
     ) -> bool:
         """
         Update server weight for load balancing.

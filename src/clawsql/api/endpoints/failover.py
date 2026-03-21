@@ -3,25 +3,23 @@ Failover API endpoints.
 """
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from ..schemas.requests import FailoverRequest, FailoverCancelRequest
+from ...core.failover.executor import FailoverExecutor, FailoverOperation, FailoverState
+from ...core.monitoring.exporters import PrometheusExporter
+from ..schemas.requests import FailoverRequest
 from ..schemas.responses import (
     FailoverCandidateResponse,
     FailoverHistoryResponse,
     FailoverResponse,
     SuccessResponse,
 )
-from ...core.failover.executor import FailoverExecutor, FailoverOperation, FailoverState
-from ...core.failover.detector import FailureEvent, FailureType
-from ...core.monitoring.exporters import PrometheusExporter
 
 router = APIRouter()
 
 # Global instances
-_failover_executor: Optional[FailoverExecutor] = None
+_failover_executor: FailoverExecutor | None = None
 
 
 def get_failover_executor() -> FailoverExecutor:
@@ -112,7 +110,7 @@ async def get_failover_operation(
     summary="Get failover history",
 )
 async def get_failover_history(
-    cluster_id: Optional[str] = Query(None, description="Filter by cluster"),
+    cluster_id: str | None = Query(None, description="Filter by cluster"),
     limit: int = Query(50, ge=1, le=200, description="Maximum operations"),
     executor: FailoverExecutor = Depends(get_failover_executor),
 ) -> FailoverHistoryResponse:

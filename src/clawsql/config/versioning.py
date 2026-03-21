@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -18,10 +18,10 @@ class ConfigVersion:
     version_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     version_number: int = 1
     created_at: datetime = field(default_factory=datetime.utcnow)
-    created_by: Optional[str] = None
+    created_by: str | None = None
     reason: str = ""
     config: dict[str, Any] = field(default_factory=dict)
-    parent_version_id: Optional[str] = None
+    parent_version_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -57,7 +57,7 @@ class ConfigStore:
     and audit trail for configuration changes.
     """
 
-    def __init__(self, storage_path: Optional[Path] = None):
+    def __init__(self, storage_path: Path | None = None):
         """
         Initialize the config store.
 
@@ -69,7 +69,7 @@ class ConfigStore:
 
         self._versions: dict[str, ConfigVersion] = {}
         self._current_config: dict[str, Any] = {}
-        self._current_version_id: Optional[str] = None
+        self._current_version_id: str | None = None
         self._version_counter = 0
 
         # Default configuration
@@ -165,7 +165,7 @@ class ConfigStore:
         self,
         updates: dict[str, Any],
         reason: str = "",
-        user: Optional[str] = None,
+        user: str | None = None,
     ) -> ConfigVersion:
         """
         Update configuration and create new version.
@@ -207,8 +207,8 @@ class ConfigStore:
     def rollback(
         self,
         version_id: str,
-        user: Optional[str] = None,
-    ) -> Optional[ConfigVersion]:
+        user: str | None = None,
+    ) -> ConfigVersion | None:
         """
         Rollback to a previous configuration version.
 
@@ -243,7 +243,7 @@ class ConfigStore:
 
         return new_version
 
-    def get_version(self, version_id: str) -> Optional[ConfigVersion]:
+    def get_version(self, version_id: str) -> ConfigVersion | None:
         """
         Get a specific configuration version.
 
@@ -300,7 +300,7 @@ class ConfigStore:
             "diff": diff,
         }
 
-    def reset_to_defaults(self, user: Optional[str] = None) -> ConfigVersion:
+    def reset_to_defaults(self, user: str | None = None) -> ConfigVersion:
         """
         Reset configuration to defaults.
 

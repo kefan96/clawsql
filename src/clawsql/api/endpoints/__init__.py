@@ -4,11 +4,11 @@ API endpoints package.
 
 from fastapi import APIRouter
 
-from .instances import router as instances_router
 from .clusters import router as clusters_router
-from .monitoring import router as monitoring_router
-from .failover import router as failover_router
 from .config import router as config_router
+from .failover import router as failover_router
+from .instances import router as instances_router
+from .monitoring import router as monitoring_router
 
 # Main API router
 router = APIRouter()

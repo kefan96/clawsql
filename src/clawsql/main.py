@@ -2,7 +2,6 @@
 ClawSQL - Main FastAPI Application Entry Point.
 """
 
-import sys
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -37,7 +36,7 @@ async def lifespan(app: "App"):
     )
 
     logger.info(
-        f"Configuration loaded",
+        "Configuration loaded",
         extra={
             "api_host": settings.api.host,
             "api_port": settings.api.port,

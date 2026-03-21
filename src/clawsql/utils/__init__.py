@@ -2,16 +2,16 @@
 Utility modules for ClawSQL.
 """
 
-from .database import DatabaseManager, ConnectionPool
-from .logger import get_logger, setup_logging
-from .security import TokenManager, hash_password, verify_password
+from .database import ConnectionPool, DatabaseManager
 from .exceptions import (
     ClawSQLError,
-    InstanceNotFoundError,
     ClusterNotFoundError,
-    FailoverError,
     ConfigurationError,
+    FailoverError,
+    InstanceNotFoundError,
 )
+from .logger import get_logger, setup_logging
+from .security import TokenManager, hash_password, verify_password
 
 __all__ = [
     "DatabaseManager",

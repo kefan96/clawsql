@@ -5,7 +5,7 @@ Core data models for MySQL instances and clusters.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class InstanceRole(Enum):
@@ -72,13 +72,13 @@ class MySQLInstance:
 
     host: str
     port: int
-    server_id: Optional[int] = None
+    server_id: int | None = None
     role: InstanceRole = InstanceRole.UNKNOWN
     state: InstanceState = InstanceState.OFFLINE
-    version: Optional[str] = None
-    replication_lag: Optional[float] = None
+    version: str | None = None
+    replication_lag: float | None = None
     last_seen: datetime = field(default_factory=datetime.utcnow)
-    cluster_id: Optional[str] = None
+    cluster_id: str | None = None
     labels: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -130,11 +130,11 @@ class MySQLCluster:
 
     cluster_id: str
     name: str
-    primary: Optional[MySQLInstance] = None
+    primary: MySQLInstance | None = None
     replicas: list[MySQLInstance] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
-    description: Optional[str] = None
+    description: str | None = None
 
     @property
     def instance_count(self) -> int:
@@ -169,7 +169,7 @@ class MySQLCluster:
         else:
             return HealthStatus.UNHEALTHY
 
-    def get_instance(self, host: str, port: int) -> Optional[MySQLInstance]:
+    def get_instance(self, host: str, port: int) -> MySQLInstance | None:
         """Get instance by host and port."""
         if self.primary and self.primary.host == host and self.primary.port == port:
             return self.primary

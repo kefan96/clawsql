@@ -2,7 +2,7 @@
 Custom exceptions for ClawSQL.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 
 class ClawSQLError(Exception):
@@ -11,8 +11,8 @@ class ClawSQLError(Exception):
     def __init__(
         self,
         message: str,
-        code: Optional[str] = None,
-        details: Optional[dict[str, Any]] = None,
+        code: str | None = None,
+        details: dict[str, Any] | None = None,
     ):
         """
         Initialize ClawSQL error.
@@ -64,8 +64,8 @@ class FailoverError(ClawSQLError):
     def __init__(
         self,
         message: str,
-        cluster_id: Optional[str] = None,
-        operation_id: Optional[str] = None,
+        cluster_id: str | None = None,
+        operation_id: str | None = None,
     ):
         details = {}
         if cluster_id:
@@ -108,7 +108,7 @@ class ConfigurationError(ClawSQLError):
     def __init__(
         self,
         message: str,
-        config_path: Optional[str] = None,
+        config_path: str | None = None,
     ):
         details = {}
         if config_path:
@@ -127,8 +127,8 @@ class ValidationError(ClawSQLError):
     def __init__(
         self,
         message: str,
-        field: Optional[str] = None,
-        value: Optional[Any] = None,
+        field: str | None = None,
+        value: Any | None = None,
     ):
         details = {}
         if field:
@@ -159,8 +159,8 @@ class AuthorizationError(ClawSQLError):
     def __init__(
         self,
         message: str = "Access denied",
-        resource: Optional[str] = None,
-        action: Optional[str] = None,
+        resource: str | None = None,
+        action: str | None = None,
     ):
         details = {}
         if resource:
@@ -181,8 +181,8 @@ class ConnectionError(ClawSQLError):
     def __init__(
         self,
         message: str,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
+        host: str | None = None,
+        port: int | None = None,
     ):
         details = {}
         if host:
@@ -203,7 +203,7 @@ class DiscoveryError(ClawSQLError):
     def __init__(
         self,
         message: str,
-        network_segment: Optional[str] = None,
+        network_segment: str | None = None,
     ):
         details = {}
         if network_segment:
@@ -222,7 +222,7 @@ class MonitoringError(ClawSQLError):
     def __init__(
         self,
         message: str,
-        instance_id: Optional[str] = None,
+        instance_id: str | None = None,
     ):
         details = {}
         if instance_id:
@@ -241,7 +241,7 @@ class ProxySQLError(ClawSQLError):
     def __init__(
         self,
         message: str,
-        hostgroup: Optional[int] = None,
+        hostgroup: int | None = None,
     ):
         details = {}
         if hostgroup is not None:
@@ -260,7 +260,7 @@ class OrchestratorError(ClawSQLError):
     def __init__(
         self,
         message: str,
-        endpoint: Optional[str] = None,
+        endpoint: str | None = None,
     ):
         details = {}
         if endpoint:

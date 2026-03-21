@@ -1,12 +1,11 @@
 """Unit tests for config and utils modules."""
 
-import pytest
-from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
+import pytest
+
+from clawsql.config.audit import AuditAction, AuditEntry, AuditLog
 from clawsql.config.settings import Settings, get_settings
-from clawsql.config.audit import AuditLog, AuditEntry, AuditAction
 from clawsql.config.versioning import ConfigStore
 from clawsql.utils.exceptions import (
     AuthenticationError,
@@ -126,7 +125,6 @@ class TestConfigStore:
     def config_store(self) -> ConfigStore:
         """Create a config store instance with a unique temp path."""
         import tempfile
-        import os
         temp_dir = tempfile.mkdtemp()
         store = ConfigStore(storage_path=Path(temp_dir))
         return store

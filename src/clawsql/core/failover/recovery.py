@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from ..discovery.models import MySQLCluster, MySQLInstance
 from ..discovery.topology import OrchestratorClient
@@ -32,14 +32,14 @@ class RecoveryOperation:
     instance_id: str = ""
     recovery_type: str = "restore"
     state: RecoveryState = RecoveryState.PENDING
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     steps: list[str] = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
     progress_percent: float = 0.0
 
     @property
-    def duration_seconds(self) -> Optional[float]:
+    def duration_seconds(self) -> float | None:
         """Get operation duration in seconds."""
         if not self.started_at:
             return None
@@ -280,7 +280,7 @@ class RecoveryManager:
         except Exception:
             return False
 
-    def get_operation(self, operation_id: str) -> Optional[RecoveryOperation]:
+    def get_operation(self, operation_id: str) -> RecoveryOperation | None:
         """Get a specific operation by ID."""
         return self._operations.get(operation_id)
 
@@ -295,7 +295,7 @@ class RecoveryManager:
 
     def get_operation_history(
         self,
-        instance_id: Optional[str] = None,
+        instance_id: str | None = None,
         limit: int = 100,
     ) -> list[RecoveryOperation]:
         """

@@ -1,19 +1,16 @@
 """Pytest configuration and shared fixtures for ClawSQL tests."""
 
 import asyncio
+from collections.abc import Generator
 from datetime import datetime
-from typing import Any, Generator
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from clawsql.config.settings import Settings
 from clawsql.core.discovery.models import (
-    AlertSeverity,
-    FailoverState,
-    FailureType,
-    HealthStatus,
     InstanceRole,
     InstanceState,
     MySQLCluster,

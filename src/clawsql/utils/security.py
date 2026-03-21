@@ -5,7 +5,7 @@ Security utilities for ClawSQL.
 import hashlib
 import secrets
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 import bcrypt
 from jose import JWTError, jwt
@@ -103,8 +103,8 @@ class TokenManager:
     def create_token(
         self,
         subject: str,
-        claims: Optional[dict[str, Any]] = None,
-        expiry_hours: Optional[int] = None,
+        claims: dict[str, Any] | None = None,
+        expiry_hours: int | None = None,
     ) -> str:
         """
         Create a JWT token.
@@ -132,7 +132,7 @@ class TokenManager:
 
         return jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
 
-    def validate_token(self, token: str) -> Optional[dict[str, Any]]:
+    def validate_token(self, token: str) -> dict[str, Any] | None:
         """
         Validate a JWT token.
 
@@ -152,7 +152,7 @@ class TokenManager:
         except JWTError:
             return None
 
-    def refresh_token(self, token: str) -> Optional[str]:
+    def refresh_token(self, token: str) -> str | None:
         """
         Refresh a valid token.
 
@@ -176,7 +176,7 @@ class TokenManager:
 
         return self.create_token(subject, claims)
 
-    def get_token_subject(self, token: str) -> Optional[str]:
+    def get_token_subject(self, token: str) -> str | None:
         """
         Get subject from token.
 
@@ -239,8 +239,8 @@ class APIKeyManager:
     def generate_key(
         self,
         name: str,
-        permissions: Optional[list[str]] = None,
-        expiry_days: Optional[int] = None,
+        permissions: list[str] | None = None,
+        expiry_days: int | None = None,
     ) -> str:
         """
         Generate a new API key.
@@ -268,7 +268,7 @@ class APIKeyManager:
 
         return key
 
-    def validate_key(self, key: str) -> Optional[dict[str, Any]]:
+    def validate_key(self, key: str) -> dict[str, Any] | None:
         """
         Validate an API key.
 

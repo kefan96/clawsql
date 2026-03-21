@@ -3,10 +3,8 @@ Dynamic load balancer for MySQL read traffic.
 """
 
 import asyncio
-import math
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from ..discovery.models import MySQLCluster, MySQLInstance
 from ..monitoring.collector import InstanceMetrics, MetricsCollector
@@ -76,7 +74,7 @@ class DynamicLoadBalancer:
         self.min_weight = min_weight
         self.max_weight = max_weight
 
-        self._rebalance_task: Optional[asyncio.Task] = None
+        self._rebalance_task: asyncio.Task | None = None
         self._running = False
         self._clusters: dict[str, MySQLCluster] = {}
         self._last_weights: dict[str, dict[str, int]] = {}
@@ -110,7 +108,7 @@ class DynamicLoadBalancer:
     def calculate_weight(
         self,
         instance: MySQLInstance,
-        metrics: Optional[InstanceMetrics],
+        metrics: InstanceMetrics | None,
     ) -> float:
         """
         Calculate load weight for an instance.

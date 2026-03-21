@@ -1,8 +1,8 @@
 """Integration tests for ClawSQL end-to-end workflows."""
 
-import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
 from clawsql.config.settings import Settings
@@ -14,9 +14,9 @@ from clawsql.core.discovery.models import (
     MySQLInstance,
 )
 from clawsql.core.discovery.scanner import InstanceRegistry
-from clawsql.core.monitoring.collector import InstanceMetrics, MetricsCollector
-from clawsql.core.monitoring.health_checker import HealthChecker
 from clawsql.core.monitoring.alert_manager import AlertManager
+from clawsql.core.monitoring.collector import InstanceMetrics
+from clawsql.core.monitoring.health_checker import HealthChecker
 from clawsql.main import create_app
 
 
@@ -297,6 +297,7 @@ class TestConfigurationManagement:
         """Test configuration update and rollback workflow."""
         import tempfile
         from pathlib import Path
+
         from clawsql.config.versioning import ConfigStore
 
         temp_dir = tempfile.mkdtemp()
@@ -443,7 +444,8 @@ class TestAlertNotification:
         alert_manager = AlertManager()
 
         # Import health check result and HealthStatus from the same module as AlertManager uses
-        from clawsql.core.monitoring.health_checker import HealthCheckResult, HealthStatus as HealthStatusHC
+        from clawsql.core.monitoring.health_checker import HealthCheckResult
+        from clawsql.core.monitoring.health_checker import HealthStatus as HealthStatusHC
 
         # Create unhealthy result
         result = HealthCheckResult(

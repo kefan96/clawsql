@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from .health_checker import HealthCheckResult, HealthStatus
 
@@ -31,10 +31,10 @@ class Alert:
     value: float = 0.0
     threshold: float = 0.0
     triggered_at: datetime = field(default_factory=datetime.utcnow)
-    resolved_at: Optional[datetime] = None
+    resolved_at: datetime | None = None
     acknowledged: bool = False
-    acknowledged_by: Optional[str] = None
-    acknowledged_at: Optional[datetime] = None
+    acknowledged_by: str | None = None
+    acknowledged_at: datetime | None = None
 
     @property
     def is_active(self) -> bool:
@@ -108,7 +108,7 @@ class AlertManager:
     def process_health_result(
         self,
         result: HealthCheckResult,
-    ) -> Optional[Alert]:
+    ) -> Alert | None:
         """
         Process health check result and potentially create alert.
 
@@ -155,7 +155,7 @@ class AlertManager:
     def acknowledge_alert(
         self,
         alert_id: str,
-        acknowledged_by: Optional[str] = None,
+        acknowledged_by: str | None = None,
     ) -> bool:
         """
         Acknowledge an alert.
@@ -203,8 +203,8 @@ class AlertManager:
 
     def get_active_alerts(
         self,
-        instance_id: Optional[str] = None,
-        severity: Optional[AlertSeverity] = None,
+        instance_id: str | None = None,
+        severity: AlertSeverity | None = None,
     ) -> list[Alert]:
         """
         Get active (unresolved) alerts.
@@ -228,8 +228,8 @@ class AlertManager:
 
     def get_alert_history(
         self,
-        instance_id: Optional[str] = None,
-        severity: Optional[AlertSeverity] = None,
+        instance_id: str | None = None,
+        severity: AlertSeverity | None = None,
         limit: int = 100,
     ) -> list[Alert]:
         """
@@ -253,7 +253,7 @@ class AlertManager:
 
         return sorted(alerts, key=lambda a: a.triggered_at, reverse=True)[:limit]
 
-    def get_alert(self, alert_id: str) -> Optional[Alert]:
+    def get_alert(self, alert_id: str) -> Alert | None:
         """
         Get a specific alert by ID.
 
@@ -275,7 +275,7 @@ class AlertManager:
 
         return None
 
-    def clear_alerts(self, instance_id: Optional[str] = None) -> int:
+    def clear_alerts(self, instance_id: str | None = None) -> int:
         """
         Clear alerts.
 
@@ -309,7 +309,7 @@ class AlertManager:
         cooldown = timedelta(minutes=self.cooldown_minutes)
         return datetime.utcnow() - last_time > cooldown
 
-    def _resolve_alert_if_exists(self, result: HealthCheckResult) -> Optional[Alert]:
+    def _resolve_alert_if_exists(self, result: HealthCheckResult) -> Alert | None:
         """Resolve alert if exists for healthy result."""
         alert_key = f"{result.instance_id}:{result.check_name}"
 
@@ -344,7 +344,7 @@ class AlertManager:
     async def send_notification(
         self,
         alert: Alert,
-        channels: Optional[list[str]] = None,
+        channels: list[str] | None = None,
     ) -> None:
         """
         Send alert notification via configured channels.

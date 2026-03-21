@@ -2,10 +2,9 @@
 Orchestrator client for topology management.
 """
 
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
 
@@ -19,8 +18,8 @@ class OrchestratorConfig:
     url: str = "http://orchestrator:3000"
     timeout: float = 30.0
     tls_enabled: bool = False
-    tls_cert: Optional[str] = None
-    tls_key: Optional[str] = None
+    tls_cert: str | None = None
+    tls_key: str | None = None
 
 
 class OrchestratorError(Exception):
@@ -37,7 +36,7 @@ class OrchestratorClient:
     and instance control via the Orchestrator REST API.
     """
 
-    def __init__(self, config: Optional[OrchestratorConfig] = None):
+    def __init__(self, config: OrchestratorConfig | None = None):
         """
         Initialize the Orchestrator client.
 
@@ -46,7 +45,7 @@ class OrchestratorClient:
         """
         self.config = config or OrchestratorConfig()
         self.base_url = self.config.url.rstrip("/")
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
     async def connect(self) -> None:
         """Initialize HTTP session."""
@@ -102,7 +101,7 @@ class OrchestratorClient:
         data = await self._get("/api/clusters")
         return [c["cluster_name"] if isinstance(c, dict) else c for c in data]
 
-    async def get_topology(self, cluster_name: str) -> Optional[MySQLCluster]:
+    async def get_topology(self, cluster_name: str) -> MySQLCluster | None:
         """
         Get topology for a specific cluster.
 
@@ -122,7 +121,7 @@ class OrchestratorClient:
         self,
         host: str,
         port: int = 3306,
-    ) -> Optional[MySQLInstance]:
+    ) -> MySQLInstance | None:
         """
         Get instance details from Orchestrator.
 
@@ -234,7 +233,7 @@ class OrchestratorClient:
         self,
         host: str,
         port: int,
-        destination: Optional[str] = None,
+        destination: str | None = None,
     ) -> dict[str, Any]:
         """
         Request Orchestrator to perform failover.
@@ -295,7 +294,7 @@ class OrchestratorClient:
                 raise OrchestratorError(f"API error: {response.status}")
             return await response.json()
 
-    async def _post(self, path: str, json: Optional[dict] = None) -> Any:
+    async def _post(self, path: str, json: dict | None = None) -> Any:
         """Make POST request to Orchestrator API."""
         await self._ensure_session()
         async with self._session.post(
@@ -354,7 +353,7 @@ class OrchestratorClient:
 
         return cluster
 
-    def _parse_instance(self, data: dict[str, Any]) -> Optional[MySQLInstance]:
+    def _parse_instance(self, data: dict[str, Any]) -> MySQLInstance | None:
         """Parse Orchestrator instance data into MySQLInstance."""
         if not data:
             return None

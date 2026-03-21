@@ -2,12 +2,10 @@
 Logging utilities for ClawSQL.
 """
 
+import json
 import logging
 import sys
 from datetime import datetime
-from typing import Optional
-
-import json
 
 
 class JSONFormatter(logging.Formatter):
@@ -82,7 +80,7 @@ class ClawSQLLogger(logging.Logger):
 def setup_logging(
     level: str = "INFO",
     format_type: str = "json",
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
 ) -> None:
     """
     Setup logging configuration.
@@ -138,7 +136,7 @@ def get_logger(name: str = "clawsql") -> logging.Logger:
 class RequestContextFilter(logging.Filter):
     """Add request context to log records."""
 
-    def __init__(self, request_id: Optional[str] = None):
+    def __init__(self, request_id: str | None = None):
         super().__init__()
         self.request_id = request_id
 

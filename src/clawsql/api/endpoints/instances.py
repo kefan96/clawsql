@@ -2,18 +2,16 @@
 Instance management API endpoints.
 """
 
-import asyncio
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from ...core.discovery.models import InstanceRole, InstanceState, MySQLInstance
+from ...core.discovery.scanner import InstanceRegistry, NetworkScanner
 from ..schemas.requests import (
     InstanceCreateRequest,
     InstanceDiscoverRequest,
     MaintenanceRequest,
-    InstanceFilterParams,
-    PaginationParams,
 )
 from ..schemas.responses import (
     DiscoveryResponse,
@@ -23,13 +21,11 @@ from ..schemas.responses import (
     InstanceResponse,
     SuccessResponse,
 )
-from ...core.discovery.models import InstanceRole, InstanceState, MySQLInstance
-from ...core.discovery.scanner import InstanceRegistry, NetworkScanner
 
 router = APIRouter()
 
 # Global instance registry (would be dependency-injected in production)
-_instance_registry: Optional[InstanceRegistry] = None
+_instance_registry: InstanceRegistry | None = None
 
 
 def get_instance_registry() -> InstanceRegistry:
@@ -47,9 +43,9 @@ def get_instance_registry() -> InstanceRegistry:
     description="List all discovered and registered MySQL instances with optional filtering.",
 )
 async def list_instances(
-    cluster_id: Optional[str] = Query(None, description="Filter by cluster"),
-    state: Optional[str] = Query(None, description="Filter by state"),
-    role: Optional[str] = Query(None, description="Filter by role"),
+    cluster_id: str | None = Query(None, description="Filter by cluster"),
+    state: str | None = Query(None, description="Filter by state"),
+    role: str | None = Query(None, description="Filter by role"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     registry: InstanceRegistry = Depends(get_instance_registry),

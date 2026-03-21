@@ -2,9 +2,9 @@
 Configuration management for ClawSQL.
 """
 
-from .settings import Settings, DatabaseSettings, OrchestratorSettings
+from .audit import AuditEntry, AuditLog
+from .settings import DatabaseSettings, OrchestratorSettings, Settings
 from .versioning import ConfigStore, ConfigVersion
-from .audit import AuditLog, AuditEntry
 
 __all__ = [
     "Settings",

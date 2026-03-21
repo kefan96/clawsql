@@ -1,8 +1,9 @@
 """Unit tests for failover module."""
 
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from clawsql.core.discovery.models import (
     FailoverState,
