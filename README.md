@@ -16,7 +16,7 @@ ClawSQL is an open-source MySQL cluster automation system that provides:
 
 ### Prerequisites
 
-- Docker and Docker Compose
+- Docker and Docker Compose (or Podman)
 - Your MySQL instances (primary + replicas)
 
 ### Start the Platform
@@ -76,6 +76,16 @@ mysql -h localhost -P 6033 -u your_user -p
 ./start.sh --help       # Show help
 ```
 
+### Cleanup Script
+
+Stop all services and clean up:
+
+```bash
+./scripts/cleanup.sh           # Stop containers, keep volumes
+./scripts/cleanup.sh --volumes # Remove volumes too
+./scripts/cleanup.sh --all     # Remove images as well
+```
+
 ### Demo Mode
 
 Try ClawSQL with a demo MySQL cluster (primary + 2 replicas):
@@ -96,43 +106,12 @@ Try ClawSQL with a demo MySQL cluster (primary + 2 replicas):
 | `/api/v1/instances` | GET | List all MySQL instances |
 | `/api/v1/instances` | POST | Register a new instance |
 | `/api/v1/clusters` | GET | List all clusters |
-| `/api/v1/clusters/{id}/topology` | GET | Get cluster topology |
+| `/api/v1/clusters/{id}` | GET | Get cluster details |
 | `/api/v1/failover/execute` | POST | Execute failover |
 | `/api/v1/monitoring/health` | GET | Get system health |
-| `/api/v1/monitoring/alerts` | GET | List active alerts |
+| `/api/v1/monitoring/system` | GET | Get system status |
 
 Full API documentation at http://localhost:8080/docs when running.
-
-### Example Workflow
-
-```bash
-# 1. Register your MySQL primary
-curl -X POST http://localhost:8080/api/v1/instances \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "host": "mysql-primary.example.com",
-    "port": 3306,
-    "cluster_id": "production"
-  }'
-
-# 2. Register replicas
-curl -X POST http://localhost:8080/api/v1/instances \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "host": "mysql-replica-1.example.com",
-    "port": 3306,
-    "cluster_id": "production"
-  }'
-
-# 3. View cluster topology
-curl http://localhost:8080/api/v1/clusters/production/topology
-
-# 4. Check system health
-curl http://localhost:8080/api/v1/monitoring/health
-
-# 5. Connect your app to ProxySQL
-# Your app now has automatic read/write splitting!
-```
 
 ## Deployment
 
@@ -146,7 +125,7 @@ The default deployment uses Docker Compose. All services run in containers:
 ```
 
 Services started:
-- **clawsql** - Main API application
+- **clawsql** - Main API application (Node.js/TypeScript)
 - **orchestrator** - MySQL topology management and failover
 - **proxysql** - MySQL proxy with read/write splitting
 - **prometheus** - Metrics collection
@@ -165,30 +144,11 @@ Key settings:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DB_TYPE` | Metadata storage: `sqlite` or `mysql` | `sqlite` |
-| `API_TOKEN_SECRET` | JWT secret (change in production!) | (required) |
+| `API_TOKEN_SECRET` | JWT secret (change in production!) | `change-me-in-production` |
 | `ORCHESTRATOR_URL` | Orchestrator API URL | `http://orchestrator:3000` |
 | `AUTO_FAILOVER_ENABLED` | Enable automatic failover | `true` |
 | `MYSQL_MONITOR_USER` | User for monitoring your MySQL | `monitor` |
 | `MYSQL_MONITOR_PASSWORD` | Monitor user password | (required) |
-
-### Metadata Storage
-
-ClawSQL needs a database for its own state (instances, clusters, history).
-
-**SQLite (default)** - Zero configuration:
-```bash
-DB_TYPE=sqlite
-```
-
-**MySQL** - For production or centralized metadata:
-```bash
-DB_TYPE=mysql
-DB_HOST=your-mysql-host
-DB_PORT=3306
-DB_NAME=clawsql
-DB_USER=clawsql
-DB_PASSWORD=your-password
-```
 
 ### Production Checklist
 
@@ -200,87 +160,91 @@ DB_PASSWORD=your-password
 
 ## Development
 
+### Requirements
+
+- Node.js 18+
+- npm
+
 ### Setup
 
 ```bash
-# Create virtual environment
-python3.11 -m venv venv
-source venv/bin/activate
+# Install dependencies
+npm install
 
-# Install with dev dependencies
-pip install -e ".[dev]"
+# Run in development mode
+npm run dev
+
+# Build for production
+npm run build
+
+# Run production build
+npm start
 ```
-
-### Running Locally
-
-```bash
-# Run ClawSQL API (without Docker)
-clawsql
-
-# Or with more control
-python -m uvicorn clawsql.main:app --reload --port 8080
-```
-
-**Note:** For full functionality, you'll also need:
-- Orchestrator (for topology/HA)
-- ProxySQL (for routing)
-- Prometheus (optional, for metrics)
 
 ### Testing
 
 ```bash
 # Run all tests
-pytest
+npm test
 
 # Run with coverage
-pytest --cov=src --cov-report=html
+npm run test:coverage
 
-# Run specific tests
-pytest tests/unit/test_failover.py
-
-# Run only unit tests
-pytest -m unit
+# Watch mode
+npm run test:watch
 ```
 
 ### Code Quality
 
 ```bash
-# Format code
-black src tests
-
 # Lint
-ruff check src tests
+npm run lint
 
-# Type check
-mypy src
+# Format
+npm run format
 ```
 
 ### Project Structure
 
 ```
 clawsql/
-├── start.sh              # One-command startup
-├── docker-compose.yml    # Platform services
-├── docker-compose.demo.yml  # Optional demo MySQL
-├── src/clawsql/
-│   ├── main.py          # Application entry point
-│   ├── core/            # Core business logic
-│   │   ├── discovery/   # Instance discovery
-│   │   ├── monitoring/  # Metrics and health checks
-│   │   ├── failover/    # Failover operations
-│   │   └── routing/     # ProxySQL integration
-│   ├── api/             # REST API endpoints
-│   ├── config/          # Configuration management
-│   └── utils/           # Utilities
-├── tests/               # Test suite
-├── docker/              # Docker configurations
-│   ├── Dockerfile       # ClawSQL container
-│   ├── orchestrator/    # Orchestrator config
-│   ├── proxysql/        # ProxySQL config
-│   ├── prometheus/      # Prometheus config
-│   └── grafana/         # Grafana dashboards
-└── docs/                # Documentation
+├── src/
+│   ├── index.ts           # Entry point
+│   ├── app.ts             # Fastify application setup
+│   ├── config/            # Configuration management
+│   ├── types/             # TypeScript types and interfaces
+│   ├── core/              # Core business logic
+│   │   ├── discovery/     # Instance discovery and topology
+│   │   ├── monitoring/    # Metrics and health checks
+│   │   ├── failover/      # Failover operations
+│   │   └── routing/       # ProxySQL integration
+│   ├── api/               # REST API routes
+│   ├── utils/             # Utilities
+│   └── __tests__/         # Test files
+├── docker/                # Docker configurations
+├── scripts/               # Utility scripts
+├── package.json           # Node.js dependencies
+└── tsconfig.json          # TypeScript configuration
 ```
+
+## Architecture
+
+### Technology Stack
+
+- **Runtime**: Node.js 20
+- **Language**: TypeScript
+- **Framework**: Fastify
+- **Database**: SQLite (default) or MySQL for metadata
+- **Validation**: Zod
+- **Metrics**: prom-client
+
+### Key Components
+
+1. **Orchestrator Client** - Communicates with Orchestrator for topology management
+2. **ProxySQL Manager** - Configures ProxySQL for read/write splitting
+3. **Metrics Collector** - Collects metrics from MySQL instances
+4. **Failover Executor** - Handles automatic and manual failover
+5. **Prometheus Exporter** - Exports metrics in Prometheus format
 
 ## Troubleshooting
 
@@ -302,6 +266,9 @@ docker-compose ps
 
 # Restart services
 docker-compose restart
+
+# Full cleanup and restart
+./scripts/cleanup.sh && ./start.sh
 ```
 
 ### MySQL Connection Issues
@@ -313,29 +280,15 @@ docker-compose restart
    ```
 3. Test connection: `mysql -h your-mysql -u monitor -p`
 
-### API Returns 401
-
-Include the Authorization header with a valid token:
-
-```bash
-# Get a token first
-TOKEN=$(curl -X POST http://localhost:8080/api/v1/auth/token \
-  -d '{"user_id": "admin", "permissions": ["read", "write"]}' | jq -r '.token')
-
-# Use the token
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/clusters
-```
-
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Run tests (`pytest`)
-5. Run linting (`black src tests && ruff check src tests`)
-6. Commit your changes
-7. Push to the branch
-8. Open a Pull Request
+4. Run tests (`npm test`)
+5. Commit your changes
+6. Push to the branch
+7. Open a Pull Request
 
 ## License
 

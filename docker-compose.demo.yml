@@ -4,8 +4,6 @@
 # This file adds a demo MySQL cluster (primary + 2 replicas) for testing.
 # Users with existing MySQL instances do NOT need this file.
 
-version: "3.8"
-
 services:
   # =============================================================================
   # MySQL Primary (Writer)

@@ -10,16 +10,14 @@
 #     -H 'Content-Type: application/json' \
 #     -d '{"host": "your-mysql-host", "port": 3306}'
 
-version: "3.8"
-
 services:
   # =============================================================================
-  # ClawSQL Application
+  # ClawSQL Application (Node.js)
   # =============================================================================
   clawsql:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.node
     container_name: clawsql
     hostname: clawsql
     ports:
@@ -69,7 +67,7 @@ services:
   # Orchestrator - MySQL Topology Management
   # =============================================================================
   orchestrator:
-    image: openorchestrator/orchestrator:latest
+    image: openarkcode/orchestrator:latest
     container_name: orchestrator
     hostname: orchestrator
     ports:

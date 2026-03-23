@@ -6,6 +6,7 @@
 #   ./start.sh              # Start platform only (bring your own MySQL)
 #   ./start.sh --demo       # Start with demo MySQL cluster
 #   ./start.sh --stop       # Stop all services
+#   ./start.sh --cleanup    # Full cleanup (stops services, removes containers)
 #   ./start.sh --help       # Show help
 #
 # After starting, register your MySQL instances:
@@ -31,6 +32,68 @@ cd "$SCRIPT_DIR"
 # Default settings
 DEMO_MODE=false
 
+# Detect container runtime
+detect_runtime() {
+    if command -v docker &> /dev/null; then
+        if docker info &> /dev/null 2>&1; then
+            # Check if it's actually Podman
+            if docker --version 2>&1 | grep -qi podman; then
+                echo "podman"
+            else
+                echo "docker"
+            fi
+        elif systemctl is-active podman.socket &> /dev/null 2>&1; then
+            echo "podman"
+        else
+            echo "none"
+        fi
+    elif command -v podman &> /dev/null; then
+        echo "podman"
+    else
+        echo "none"
+    fi
+}
+
+# Detect compose command
+detect_compose_cmd() {
+    local runtime="$1"
+    if command -v docker-compose &> /dev/null; then
+        echo "docker-compose"
+    elif [ "$runtime" = "docker" ] && docker compose version &> /dev/null 2>&1; then
+        echo "docker compose"
+    elif [ "$runtime" = "podman" ] && podman-compose version &> /dev/null 2>&1; then
+        echo "podman-compose"
+    else
+        echo ""
+    fi
+}
+
+# Stop conflicting systemd services
+stop_conflicting_services() {
+    local services_stopped=()
+
+    # Check for proxysql service
+    if systemctl is-active proxysql &> /dev/null 2>&1; then
+        echo -e "${YELLOW}Stopping conflicting proxysql systemd service...${NC}"
+        sudo systemctl stop proxysql 2>/dev/null || true
+        services_stopped+=("proxysql")
+    fi
+
+    # Check for mysqld/mariadb service
+    for svc in mysqld mariadb mysql; do
+        if systemctl is-active "$svc" &> /dev/null 2>&1; then
+            echo -e "${YELLOW}Stopping conflicting $svc systemd service...${NC}"
+            sudo systemctl stop "$svc" 2>/dev/null || true
+            services_stopped+=("$svc")
+            break
+        fi
+    done
+
+    if [ ${#services_stopped[@]} -gt 0 ]; then
+        echo -e "${GREEN}✓ Stopped conflicting services: ${services_stopped[*]}${NC}"
+    fi
+}
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -40,12 +103,19 @@ while [[ $# -gt 0 ]]; do
             ;;
         --stop)
             echo -e "${BLUE}Stopping ClawSQL...${NC}"
-            docker-compose down
-            if [ -f docker-compose.demo.yml ]; then
-                docker-compose -f docker-compose.yml -f docker-compose.demo.yml down
+            RUNTIME=$(detect_runtime)
+            COMPOSE_CMD=$(detect_compose_cmd "$RUNTIME")
+            if [ -n "$COMPOSE_CMD" ]; then
+                $COMPOSE_CMD down 2>/dev/null || true
+                if [ -f docker-compose.demo.yml ]; then
+                    $COMPOSE_CMD -f docker-compose.yml -f docker-compose.demo.yml down 2>/dev/null || true
+                fi
             fi
             echo -e "${GREEN}✓ ClawSQL stopped${NC}"
             exit 0
+            ;;
+        --cleanup)
+            exec ./scripts/cleanup.sh "$@"
             ;;
         --help|-h)
             echo "ClawSQL - MySQL HA Management Platform"
@@ -54,9 +124,10 @@ while [[ $# -gt 0 ]]; do
             echo "  ./start.sh              Start platform (bring your own MySQL)"
             echo "  ./start.sh --demo       Start with demo MySQL cluster"
             echo "  ./start.sh --stop       Stop all services"
+            echo "  ./start.sh --cleanup    Full cleanup (stops and removes containers)"
             echo ""
             echo "After starting, register your MySQL instances via API:"
-            echo "  curl -X POST http://localhost:8080/api/v1 instances \\"
+            echo "  curl -X POST http://localhost:8080/api/v1/instances \\"
             echo "    -H 'Content-Type: application/json' \\"
             echo "    -d '{\"host\": \"your-mysql\", \"port\": 3306}'"
             echo ""
@@ -85,26 +156,60 @@ echo -e "${CYAN}║            MySQL High Availability Platform                �
 echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Check Docker
-echo -e "${BLUE}[1/4] Checking prerequisites...${NC}"
-if ! command -v docker &> /dev/null; then
-    echo -e "${RED}✗ Docker is not installed${NC}"
-    echo ""
-    echo "Please install Docker first:"
-    echo "  https://docs.docker.com/get-docker/"
-    exit 1
-fi
-echo -e "${GREEN}✓ Docker is installed${NC}"
+# Detect runtime and compose command
+RUNTIME=$(detect_runtime)
+COMPOSE_CMD=$(detect_compose_cmd "$RUNTIME")
 
-# Check Docker Compose
-if ! command -v docker-compose &> /dev/null; then
-    echo -e "${RED}✗ Docker Compose is not installed${NC}"
+# Check prerequisites
+echo -e "${BLUE}[1/4] Checking prerequisites...${NC}"
+
+if [ "$RUNTIME" = "none" ]; then
+    echo -e "${RED}✗ No container runtime found${NC}"
     echo ""
-    echo "Please install Docker Compose first:"
-    echo "  https://docs.docker.com/compose/install/"
+    echo "Please install Docker or Podman:"
+    echo "  Docker:  https://docs.docker.com/get-docker/"
+    echo "  Podman:  https://podman.io/getting-started/installation"
     exit 1
 fi
-echo -e "${GREEN}✓ Docker Compose is installed${NC}"
+echo -e "${GREEN}✓ Container runtime: ${RUNTIME}${NC}"
+
+# For Podman, ensure socket is running
+if [ "$RUNTIME" = "podman" ]; then
+    if ! systemctl is-active podman.socket &> /dev/null; then
+        echo -e "${YELLOW}Enabling podman socket...${NC}"
+        systemctl enable --now podman.socket 2>/dev/null || true
+    fi
+fi
+
+# Check container runtime is working
+if ! $RUNTIME info &> /dev/null; then
+    echo -e "${RED}✗ Container runtime is not running${NC}"
+    echo ""
+    if [ "$RUNTIME" = "docker" ]; then
+        echo "Please start Docker:"
+        echo "  systemctl start docker"
+    else
+        echo "Please ensure podman socket is running:"
+        echo "  systemctl enable --now podman.socket"
+    fi
+    exit 1
+fi
+echo -e "${GREEN}✓ Container runtime is running${NC}"
+
+# Check compose
+if [ -z "$COMPOSE_CMD" ]; then
+    echo -e "${RED}✗ Docker Compose / Podman Compose not found${NC}"
+    echo ""
+    echo "Please install docker-compose or podman-compose:"
+    echo "  pip install docker-compose"
+    echo "  # or"
+    echo "  pip install podman-compose"
+    exit 1
+fi
+echo -e "${GREEN}✓ Compose: ${COMPOSE_CMD}${NC}"
+
+# Stop conflicting systemd services
+stop_conflicting_services
 
 # Create .env if not exists
 if [ ! -f .env ]; then
@@ -120,10 +225,10 @@ echo -e "${BLUE}[2/4] Starting services...${NC}"
 
 if [ "$DEMO_MODE" = true ]; then
     echo -e "${YELLOW}Starting with demo MySQL cluster...${NC}"
-    docker-compose -f docker-compose.yml -f docker-compose.demo.yml up -d
+    $COMPOSE_CMD -f docker-compose.yml -f docker-compose.demo.yml up -d
 else
     echo -e "${YELLOW}Starting platform services (bring your own MySQL)...${NC}"
-    docker-compose up -d
+    $COMPOSE_CMD up -d
 fi
 
 # Wait for ClawSQL API
@@ -206,7 +311,8 @@ echo "  3. Connect your app to ProxySQL:"
 echo "     mysql -h localhost -P 6033 -u root -p"
 echo ""
 echo -e "${BLUE}Commands:${NC}"
-echo "  View logs:    docker-compose logs -f clawsql"
+echo "  View logs:    $COMPOSE_CMD logs -f clawsql"
 echo "  Stop:         ./start.sh --stop"
+echo "  Cleanup:      ./start.sh --cleanup"
 echo "  Help:         ./start.sh --help"
 echo ""

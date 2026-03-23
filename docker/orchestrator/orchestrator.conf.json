@@ -1,5 +1,3 @@
-# Orchestrator Configuration for ClawSQL Demo
-
 {
   "Debug": false,
   "ListenAddress": ":3000",
