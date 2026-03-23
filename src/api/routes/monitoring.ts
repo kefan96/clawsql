@@ -66,9 +66,10 @@ const monitoringRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Prometheus metrics
-  fastify.get('/metrics', async () => {
+  fastify.get('/metrics', async (_request, reply) => {
     const exporter = getPrometheusExporter();
     const metrics = await exporter.getMetrics();
+    reply.type(exporter.getContentType());
     return metrics;
   });
 };

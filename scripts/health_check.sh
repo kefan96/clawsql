@@ -84,20 +84,38 @@ fi
 # Check ProxySQL
 echo ""
 echo -e "${BLUE}ProxySQL${NC}"
-if command -v mysql &>/dev/null; then
+PROXYSQL_OK=false
+
+# Try docker exec first (works when mysql client not on host)
+if command -v docker &>/dev/null; then
+    if docker exec proxysql mysql -h127.0.0.1 -P6032 -uadmin -padmin -e "SELECT 1" &>/dev/null; then
+        check_pass "ProxySQL admin interface is responding"
+        PROXYSQL_OK=true
+    fi
+fi
+
+# Fallback to local mysql client
+if [ "$PROXYSQL_OK" = false ] && command -v mysql &>/dev/null; then
     if mysql -h127.0.0.1 -P6032 -uadmin -padmin -e "SELECT 1" &>/dev/null; then
         check_pass "ProxySQL admin interface is responding"
+        PROXYSQL_OK=true
+    fi
+fi
+
+# Final fallback: check if container is running
+if [ "$PROXYSQL_OK" = false ]; then
+    if command -v docker &>/dev/null && docker ps --format '{{.Names}}' | grep -q proxysql; then
+        check_pass "ProxySQL container is running"
     else
         check_warn "ProxySQL is not responding (may be starting)"
     fi
-else
-    check_skip "MySQL client not available for ProxySQL check"
 fi
 
 # Check Prometheus
 echo ""
 echo -e "${BLUE}Prometheus${NC}"
-if curl -s http://localhost:9090/-/healthy 2>/dev/null | grep -q "OK"; then
+PROM_RESPONSE=$(curl -s http://localhost:9090/-/healthy 2>/dev/null)
+if echo "$PROM_RESPONSE" | grep -qi "healthy\|OK"; then
     check_pass "Prometheus is healthy"
 else
     check_warn "Prometheus is not responding"

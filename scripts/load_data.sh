@@ -26,8 +26,10 @@ log_warning() {
 }
 
 # Configuration
-MYSQL_HOST="${MYSQL_HOST:-localhost}"
-MYSQL_PORT="${MYSQL_PORT:-6033}"  # ProxySQL port
+# Use 127.0.0.1 instead of localhost to force TCP connection (localhost uses Unix socket)
+# Port 3306 = direct MySQL, Port 6033 = via ProxySQL (read/write splitting)
+MYSQL_HOST="${MYSQL_HOST:-127.0.0.1}"
+MYSQL_PORT="${MYSQL_PORT:-3306}"  # Use 6033 for ProxySQL
 MYSQL_USER="${MYSQL_USER:-root}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:-rootpassword}"
 MYSQL_DB="${MYSQL_DB:-sbtest}"
@@ -168,8 +170,8 @@ print_usage() {
     echo "  cleanup     Remove SysBench database"
     echo ""
     echo "Environment Variables:"
-    echo "  MYSQL_HOST      MySQL host (default: localhost)"
-    echo "  MYSQL_PORT      MySQL port (default: 6033 - ProxySQL)"
+    echo "  MYSQL_HOST      MySQL host (default: 127.0.0.1)"
+    echo "  MYSQL_PORT      MySQL port (default: 3306 direct, use 6033 for ProxySQL)"
     echo "  MYSQL_USER      MySQL user (default: root)"
     echo "  MYSQL_PASSWORD  MySQL password (default: rootpassword)"
     echo "  THREADS         Number of threads (default: 4)"

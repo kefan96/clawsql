@@ -140,6 +140,39 @@ services:
       - clawsql-network
     restart: unless-stopped
 
+  # =============================================================================
+  # MySQL Exporter - MySQL Metrics (optional, uncomment to enable)
+  # =============================================================================
+  # mysql-exporter:
+  #   image: prom/mysqld-exporter:latest
+  #   container_name: mysql-exporter
+  #   hostname: mysql-exporter
+  #   ports:
+  #     - "9104:9104"
+  #   environment:
+  #     - DATA_SOURCE_NAME=${MYSQL_MONITOR_USER:-monitor}:${MYSQL_MONITOR_PASSWORD:-}@(${MYSQL_HOST:-mysql-primary}:3306)/
+  #   networks:
+  #     - clawsql-network
+  #   restart: unless-stopped
+
+  # =============================================================================
+  # ProxySQL Exporter - ProxySQL Metrics (optional, uncomment to enable)
+  # =============================================================================
+  # proxysql-exporter:
+  #   image: prom/proxysql-exporter:latest
+  #   container_name: proxysql-exporter
+  #   hostname: proxysql-exporter
+  #   ports:
+  #     - "42004:42004"
+  #   command:
+  #     - '--web.listen-address=:42004'
+  #     - '--proxysql.addr=proxysql:6032'
+  #     - '--proxysql.user=admin'
+  #     - '--proxysql.password=admin'
+  #   networks:
+  #     - clawsql-network
+  #   restart: unless-stopped
+
 # =============================================================================
 # Networks
 # =============================================================================

@@ -12,8 +12,8 @@
   "BackendDB": "sqlite",
   "SQLite3DataFile": "/var/lib/orchestrator/orchestrator.db",
   "MySQLConnectTimeoutSeconds": 5,
-  "MySQLDiscoveryPollSeconds": 10,
-  "MySQLFailedDiscoveryPollSeconds": 10,
+  "MySQLDiscoveryPollSeconds": 5,
+  "MySQLFailedDiscoveryPollSeconds": 5,
   "MySQLDiscoveryMaxConcurrency": 100,
   "ReplicationLagQuery": "SELECT ABS(TIMESTAMPDIFF(SECOND, NOW(), ts)) FROM replication.heartbeat",
   "DiscoverByShowSlaveHosts": true,
@@ -67,11 +67,13 @@
   "BinlogEventsChunkSize": 10000,
   "SkipBinlogEventsContaining": [],
   "ReduceReplicationAnalysisCount": true,
-  "FailureDetectionPeriodBlockMinutes": 5,
-  "RecoveryPeriodBlockMinutes": 60,
+  "FailureDetectionPeriodBlockMinutes": 1,
+  "RecoveryPeriodBlockMinutes": 1,
   "RecoveryIgnoreHostnameFilters": [],
   "RecoverMasterClusterFilters": ["*"],
   "RecoverIntermediateMasterClusterFilters": ["*"],
+  "AutoMasterFailover": true,
+  "FailMasterFailover": true,
   "OnFailureDetectionProcesses": [],
   "PreFailoverProcesses": [],
   "PostFailoverProcesses": [],
@@ -82,5 +84,5 @@
   "AutopseudoGTID": false,
   "AutopseudoGTIDIntervalSeconds": 300,
   "AutopseudoGTIDExpireMinutes": 60,
-  "RecoveryPollSeconds": 10
+  "RecoveryPollSeconds": 5
 }
