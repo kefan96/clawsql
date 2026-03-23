@@ -1,1 +1,0 @@
-"""ClawSQL test suite."""
