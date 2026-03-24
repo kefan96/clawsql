@@ -1,222 +1,245 @@
 /**
  * ClawSQL - Database Utility
  *
- * SQLite and MySQL database connection for metadata storage.
+ * MySQL database connection for metadata storage.
+ * Shared with Orchestrator - extends Orchestrator's schema with ClawSQL-specific tables.
  */
 
-import Database from 'better-sqlite3';
 import mysql from 'mysql2/promise';
-import { getSettings, DatabaseSettings } from '../config/settings.js';
+import { getSettings } from '../config/settings.js';
 import { getLogger } from './logger.js';
 
 const logger = getLogger('database');
 
-// Database connection types
-export type SQLiteConnection = Database.Database;
+/**
+ * MySQL connection pool
+ */
 export type MySQLConnection = mysql.Pool;
 
 /**
- * Database connection wrapper supporting SQLite and MySQL
+ * Database manager for MySQL metadata storage
  */
 export class DatabaseManager {
-  private sqliteDb: SQLiteConnection | null = null;
-  private mysqlPool: MySQLConnection | null = null;
-  private settings: DatabaseSettings;
-
-  constructor(settings?: DatabaseSettings) {
-    this.settings = settings || getSettings().database;
-  }
+  private pool: MySQLConnection | null = null;
 
   /**
    * Initialize the database connection
    */
   async connect(): Promise<void> {
-    if (this.settings.type === 'sqlite') {
-      await this.connectSQLite();
-    } else {
-      await this.connectMySQL();
-    }
+    const settings = getSettings();
+    const metadataDb = settings.metadataDb;
+
+    const host = metadataDb.host || 'metadata-mysql';
+
+    logger.info(
+      { host, port: metadataDb.port, database: metadataDb.name },
+      'Connecting to MySQL metadata database'
+    );
+
+    this.pool = mysql.createPool({
+      host,
+      port: metadataDb.port,
+      database: metadataDb.name,
+      user: metadataDb.user,
+      password: metadataDb.password,
+      connectionLimit: metadataDb.poolSize,
+      waitForConnections: true,
+    });
+
+    // Test connection
+    const conn = await this.pool.getConnection();
+    await conn.ping();
+    conn.release();
+
+    logger.info('MySQL connection established');
+
+    // Initialize ClawSQL-specific tables
     await this.initializeSchema();
   }
 
   /**
-   * Connect to SQLite database
-   */
-  private async connectSQLite(): Promise<void> {
-    logger.info({ path: this.settings.sqlitePath }, 'Connecting to SQLite database');
-    this.sqliteDb = new Database(this.settings.sqlitePath);
-    this.sqliteDb.pragma('journal_mode = WAL');
-    this.sqliteDb.pragma('foreign_keys = ON');
-    logger.info('SQLite connection established');
-  }
-
-  /**
-   * Connect to MySQL database
-   */
-  private async connectMySQL(): Promise<void> {
-    logger.info(
-      { host: this.settings.host, port: this.settings.port, database: this.settings.name },
-      'Connecting to MySQL database'
-    );
-    this.mysqlPool = mysql.createPool({
-      host: this.settings.host,
-      port: this.settings.port,
-      database: this.settings.name,
-      user: this.settings.user,
-      password: this.settings.password,
-      connectionLimit: this.settings.poolSize,
-      waitForConnections: true,
-    });
-    // Test connection
-    const conn = await this.mysqlPool.getConnection();
-    await conn.ping();
-    conn.release();
-    logger.info('MySQL connection established');
-  }
-
-  /**
-   * Initialize database schema
+   * Initialize ClawSQL-specific tables
+   * Note: Orchestrator creates its own tables automatically
    */
   private async initializeSchema(): Promise<void> {
     const schema = `
-      -- Instances table
-      CREATE TABLE IF NOT EXISTS instances (
-        instance_id TEXT PRIMARY KEY,
-        host TEXT NOT NULL,
-        port INTEGER NOT NULL,
-        server_id INTEGER,
-        role TEXT DEFAULT 'unknown',
-        state TEXT DEFAULT 'offline',
-        version TEXT,
-        replication_lag REAL,
-        last_seen TEXT,
-        cluster_id TEXT,
-        labels TEXT DEFAULT '{}',
-        extra TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-
-      -- Clusters table
-      CREATE TABLE IF NOT EXISTS clusters (
-        cluster_id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        description TEXT,
-        primary_instance_id TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-
-      -- Failover operations table
-      CREATE TABLE IF NOT EXISTS failover_operations (
-        operation_id TEXT PRIMARY KEY,
-        cluster_id TEXT NOT NULL,
-        old_primary_id TEXT,
-        new_primary_id TEXT,
-        state TEXT DEFAULT 'idle',
-        started_at TEXT,
-        completed_at TEXT,
-        steps TEXT DEFAULT '[]',
-        error TEXT,
-        manual INTEGER DEFAULT 0,
-        reason TEXT,
-        triggered_by TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-
-      -- Alerts table
+      -- Alerts table for ClawSQL alerting
       CREATE TABLE IF NOT EXISTS alerts (
-        alert_id TEXT PRIMARY KEY,
-        severity TEXT NOT NULL,
-        instance_id TEXT,
-        cluster_id TEXT,
+        alert_id VARCHAR(36) PRIMARY KEY,
+        severity ENUM('info', 'warning', 'critical') NOT NULL,
+        instance_id VARCHAR(128),
+        cluster_id VARCHAR(128),
         message TEXT NOT NULL,
-        details TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        acknowledged INTEGER DEFAULT 0,
-        acknowledged_at TEXT,
-        acknowledged_by TEXT
-      );
+        details JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        acknowledged BOOLEAN DEFAULT FALSE,
+        acknowledged_at TIMESTAMP NULL,
+        acknowledged_by VARCHAR(128),
+        INDEX idx_alerts_severity (severity),
+        INDEX idx_alerts_instance (instance_id),
+        INDEX idx_alerts_cluster (cluster_id),
+        INDEX idx_alerts_created (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-      -- Create indexes
-      CREATE INDEX IF NOT EXISTS idx_instances_cluster ON instances(cluster_id);
-      CREATE INDEX IF NOT EXISTS idx_instances_state ON instances(state);
-      CREATE INDEX IF NOT EXISTS idx_failover_cluster ON failover_operations(cluster_id);
-      CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);
+      -- Schema metadata for NL2SQL processing
+      CREATE TABLE IF NOT EXISTS schema_metadata (
+        schema_id VARCHAR(36) PRIMARY KEY,
+        instance_id VARCHAR(128) NOT NULL,
+        database_name VARCHAR(64) NOT NULL,
+        table_name VARCHAR(64) NOT NULL,
+        column_name VARCHAR(64),
+        column_type VARCHAR(64),
+        is_nullable BOOLEAN,
+        column_comment TEXT,
+        table_comment TEXT,
+        sample_values JSON,
+        business_context TEXT,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_schema (instance_id, database_name, table_name, column_name),
+        INDEX idx_schema_instance (instance_id),
+        INDEX idx_schema_database (database_name),
+        INDEX idx_schema_table (table_name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+      -- Instance metadata (labels, extra fields extending Orchestrator's database_instance)
+      CREATE TABLE IF NOT EXISTS instance_metadata (
+        instance_id VARCHAR(128) PRIMARY KEY,
+        labels JSON DEFAULT ('{}'),
+        extra JSON DEFAULT ('{}'),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+      -- Configuration snapshots for version control
+      CREATE TABLE IF NOT EXISTS config_snapshots (
+        snapshot_id VARCHAR(36) PRIMARY KEY,
+        config_type VARCHAR(64) NOT NULL,
+        config_data JSON NOT NULL,
+        version VARCHAR(64) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by VARCHAR(128),
+        INDEX idx_config_type (config_type),
+        INDEX idx_config_version (version)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+      -- ProxySQL server configuration mirror
+      CREATE TABLE IF NOT EXISTS proxysql_servers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        hostgroup_id INT NOT NULL,
+        hostname VARCHAR(255) NOT NULL,
+        port INT NOT NULL,
+        status ENUM('ONLINE', 'OFFLINE_SOFT', 'OFFLINE_HARD') DEFAULT 'ONLINE',
+        weight INT DEFAULT 1,
+        max_connections INT DEFAULT 1000,
+        max_replication_lag INT DEFAULT 0,
+        use_ssl TINYINT DEFAULT 0,
+        comment VARCHAR(255),
+        synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_server (hostgroup_id, hostname, port),
+        INDEX idx_hostgroup (hostgroup_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+      -- ProxySQL replication hostgroups mirror
+      CREATE TABLE IF NOT EXISTS proxysql_hostgroups (
+        writer_hostgroup INT PRIMARY KEY,
+        reader_hostgroup INT NOT NULL,
+        cluster_id VARCHAR(128),
+        comment VARCHAR(255),
+        synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+      -- ProxySQL query rules mirror
+      CREATE TABLE IF NOT EXISTS proxysql_query_rules (
+        rule_id INT PRIMARY KEY,
+        active TINYINT DEFAULT 1,
+        match_pattern VARCHAR(2048),
+        replace_pattern VARCHAR(2048),
+        destination_hostgroup INT,
+        apply TINYINT DEFAULT 1,
+        comment VARCHAR(255),
+        synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+      -- ProxySQL configuration change audit log
+      CREATE TABLE IF NOT EXISTS proxysql_audit_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        action VARCHAR(32) NOT NULL,
+        entity_type VARCHAR(32) NOT NULL,
+        entity_id VARCHAR(128),
+        old_value JSON,
+        new_value JSON,
+        changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        changed_by VARCHAR(128),
+        INDEX idx_audit_action (action),
+        INDEX idx_audit_entity (entity_type, entity_id),
+        INDEX idx_audit_time (changed_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `;
 
-    if (this.sqliteDb) {
-      this.sqliteDb.exec(schema);
-    } else if (this.mysqlPool) {
-      const statements = schema.split(';').filter(s => s.trim());
-      for (const statement of statements) {
-        await this.mysqlPool.execute(statement);
-      }
+    const statements = schema.split(';').filter(s => s.trim());
+    for (const statement of statements) {
+      await this.pool!.execute(statement);
     }
-    logger.info('Database schema initialized');
+
+    logger.info('ClawSQL schema initialized');
   }
 
   /**
-   * Execute a query
+   * Execute a query and return results
    */
   async query<T = unknown>(sql: string, params: unknown[] = []): Promise<T[]> {
-    if (this.sqliteDb) {
-      const stmt = this.sqliteDb.prepare(sql);
-      const result = stmt.all(...params) as T[];
-      return result;
-    } else if (this.mysqlPool) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const [rows] = await this.mysqlPool.execute(sql, params as any[]);
-      return rows as T[];
+    if (!this.pool) {
+      throw new Error('Database not connected');
     }
-    throw new Error('Database not connected');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [rows] = await this.pool.execute(sql, params as any[]);
+    return rows as T[];
   }
 
   /**
    * Execute a statement (INSERT, UPDATE, DELETE)
    */
   async execute(sql: string, params: unknown[] = []): Promise<{ changes: number; lastId: unknown }> {
-    if (this.sqliteDb) {
-      const stmt = this.sqliteDb.prepare(sql);
-      const result = stmt.run(...params);
-      return { changes: result.changes, lastId: result.lastInsertRowid };
-    } else if (this.mysqlPool) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const [result] = await this.mysqlPool.execute(sql, params as any[]);
-      const r = result as mysql.ResultSetHeader;
-      return { changes: r.affectedRows, lastId: r.insertId };
+    if (!this.pool) {
+      throw new Error('Database not connected');
     }
-    throw new Error('Database not connected');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [result] = await this.pool.execute(sql, params as any[]);
+    const r = result as mysql.ResultSetHeader;
+    return { changes: r.affectedRows, lastId: r.insertId };
   }
 
   /**
    * Get a single row
    */
   async get<T = unknown>(sql: string, params: unknown[] = []): Promise<T | undefined> {
-    if (this.sqliteDb) {
-      const stmt = this.sqliteDb.prepare(sql);
-      return stmt.get(...params) as T | undefined;
-    } else if (this.mysqlPool) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const [rows] = await this.mysqlPool.execute(sql, params as any[]);
-      const r = rows as T[];
-      return r[0];
+    if (!this.pool) {
+      throw new Error('Database not connected');
     }
-    throw new Error('Database not connected');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [rows] = await this.pool.execute(sql, params as any[]);
+    const r = rows as T[];
+    return r[0];
+  }
+
+  /**
+   * Get a connection from the pool for transactions
+   */
+  async getConnection(): Promise<mysql.PoolConnection> {
+    if (!this.pool) {
+      throw new Error('Database not connected');
+    }
+    return this.pool.getConnection();
   }
 
   /**
    * Close the database connection
    */
   async close(): Promise<void> {
-    if (this.sqliteDb) {
-      this.sqliteDb.close();
-      this.sqliteDb = null;
-      logger.info('SQLite connection closed');
-    }
-    if (this.mysqlPool) {
-      await this.mysqlPool.end();
-      this.mysqlPool = null;
+    if (this.pool) {
+      await this.pool.end();
+      this.pool = null;
       logger.info('MySQL connection closed');
     }
   }
@@ -225,7 +248,7 @@ export class DatabaseManager {
    * Check if connected
    */
   isConnected(): boolean {
-    return this.sqliteDb !== null || this.mysqlPool !== null;
+    return this.pool !== null;
   }
 }
 

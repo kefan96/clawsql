@@ -62,7 +62,7 @@ async function showClusterTopology(clusterName: string, ctx: CLIContext): Promis
       return;
     }
 
-    console.log(chalk.bold(`\n📦 Cluster: ${clusterName}`));
+    console.log(chalk.bold(`\n📦 Cluster: ${cluster.name}`));
 
     // Show primary
     if (cluster.primary) {

@@ -219,16 +219,32 @@ if [ ! -f .env ]; then
     fi
 fi
 
+# Handle metadata database configuration
+# If METADATA_DB_HOST is not set, use the auto-provisioned metadata-mysql container
+METADATA_PROFILE=""
+if [ -z "$METADATA_DB_HOST" ] || [ "$METADATA_DB_HOST" = "" ]; then
+    # Source .env to check if it's set there
+    if [ -f .env ]; then
+        source .env 2>/dev/null || true
+    fi
+
+    if [ -z "$METADATA_DB_HOST" ] || [ "$METADATA_DB_HOST" = "" ]; then
+        echo -e "${YELLOW}No METADATA_DB_HOST set - auto-provisioning metadata MySQL container${NC}"
+        export METADATA_DB_HOST=metadata-mysql
+        METADATA_PROFILE="--profile metadata"
+    fi
+fi
+
 # Start services
 echo ""
 echo -e "${BLUE}[2/4] Starting services...${NC}"
 
 if [ "$DEMO_MODE" = true ]; then
     echo -e "${YELLOW}Starting with demo MySQL cluster...${NC}"
-    $COMPOSE_CMD -f docker-compose.yml -f docker-compose.demo.yml up -d
+    $COMPOSE_CMD $METADATA_PROFILE -f docker-compose.yml -f docker-compose.demo.yml up -d
 else
     echo -e "${YELLOW}Starting platform services (bring your own MySQL)...${NC}"
-    $COMPOSE_CMD up -d
+    $COMPOSE_CMD $METADATA_PROFILE up -d
 fi
 
 # Wait for ClawSQL API

@@ -14,14 +14,12 @@ dotenv.config();
 // Configuration Schemas
 // =============================================================================
 
-const DatabaseSettingsSchema = z.object({
-  type: z.enum(['sqlite', 'mysql']).default('sqlite'),
-  sqlitePath: z.string().default('/data/clawsql.db'),
-  host: z.string().default('localhost'),
+const MetadataDBSettingsSchema = z.object({
+  host: z.string().optional(),  // If not set, use 'metadata-mysql' container
   port: z.number().int().min(1).max(65535).default(3306),
-  name: z.string().default('clawsql'),
+  name: z.string().default('clawsql_meta'),
   user: z.string().default('clawsql'),
-  password: z.string().default(''),
+  password: z.string().default('clawsql_password'),
   poolSize: z.number().int().min(1).max(100).default(10),
 });
 
@@ -98,7 +96,7 @@ const SettingsSchema = z.object({
   appName: z.string().default('ClawSQL'),
   appVersion: z.string().default('0.1.0'),
   debug: z.boolean().default(false),
-  database: DatabaseSettingsSchema,
+  metadataDb: MetadataDBSettingsSchema,
   orchestrator: OrchestratorSettingsSchema,
   proxysql: ProxySQLSettingsSchema,
   prometheus: PrometheusSettingsSchema,
@@ -115,7 +113,7 @@ const SettingsSchema = z.object({
 // Types
 // =============================================================================
 
-export type DatabaseSettings = z.infer<typeof DatabaseSettingsSchema>;
+export type MetadataDBSettings = z.infer<typeof MetadataDBSettingsSchema>;
 export type OrchestratorSettings = z.infer<typeof OrchestratorSettingsSchema>;
 export type ProxySQLSettings = z.infer<typeof ProxySQLSettingsSchema>;
 export type PrometheusSettings = z.infer<typeof PrometheusSettingsSchema>;
@@ -162,15 +160,13 @@ function loadSettings(): Settings {
     appVersion: getEnvString('APP_VERSION'),
     debug: getEnvBool('DEBUG'),
 
-    database: {
-      type: getEnvString('DB_TYPE') as 'sqlite' | 'mysql' | undefined,
-      sqlitePath: getEnvString('DB_SQLITE_PATH'),
-      host: getEnvString('DB_HOST'),
-      port: getEnvInt('DB_PORT'),
-      name: getEnvString('DB_NAME'),
-      user: getEnvString('DB_USER'),
-      password: getEnvString('DB_PASSWORD'),
-      poolSize: getEnvInt('DB_POOL_SIZE'),
+    metadataDb: {
+      host: getEnvString('METADATA_DB_HOST'),
+      port: getEnvInt('METADATA_DB_PORT'),
+      name: getEnvString('METADATA_DB_NAME'),
+      user: getEnvString('METADATA_DB_USER'),
+      password: getEnvString('METADATA_DB_PASSWORD'),
+      poolSize: getEnvInt('METADATA_DB_POOL_SIZE'),
     },
 
     orchestrator: {

@@ -1,11 +1,14 @@
 /**
  * ClawSQL - Instances API Routes
+ *
+ * Instance management with persistence in shared metadata database.
+ * - Topology data (role, state, replication) comes from Orchestrator
+ * - User metadata (labels, extra) stored in instance_metadata table
  */
 
 import { FastifyPluginAsync } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import {
-  MySQLInstance,
   InstanceRole,
   InstanceState,
   createMySQLInstance,
@@ -13,27 +16,131 @@ import {
 } from '../../types/index.js';
 import { NotFoundError, AlreadyExistsError } from '../../utils/exceptions.js';
 import { getMetricsCollector } from '../../core/monitoring/collector.js';
+import { getDatabase } from '../../utils/database.js';
+import { getOrchestratorClient } from '../../core/discovery/topology.js';
 
-// In-memory instance registry (would be database-backed in production)
-const instanceRegistry = new Map<string, MySQLInstance>();
+interface InstanceMetadataRow {
+  instance_id: string;
+  labels: string;
+  extra: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface OrchestratorInstanceRow {
+  hostname: string;
+  port: number;
+  server_id: number;
+  version: string;
+  cluster_name: string;
+  replication_lag_seconds: number;
+  slave_lag_seconds: number;
+  last_checked: string;
+  last_seen: string;
+}
 
 /**
- * Convert MySQLInstance to API response
+ * Get instance metadata from database
  */
-function instanceToResponse(instance: MySQLInstance) {
+async function getInstanceMetadata(instanceId: string): Promise<InstanceMetadataRow | undefined> {
+  const db = getDatabase();
+  return db.get<InstanceMetadataRow>(
+    'SELECT * FROM instance_metadata WHERE instance_id = ?',
+    [instanceId]
+  );
+}
+
+/**
+ * Save instance metadata to database
+ */
+async function saveInstanceMetadata(
+  instanceId: string,
+  labels: Record<string, string>,
+  extra: Record<string, unknown>
+): Promise<void> {
+  const db = getDatabase();
+  await db.execute(
+    `INSERT INTO instance_metadata (instance_id, labels, extra)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE labels = VALUES(labels), extra = VALUES(extra)`,
+    [instanceId, JSON.stringify(labels), JSON.stringify(extra)]
+  );
+}
+
+/**
+ * Delete instance metadata from database
+ */
+async function deleteInstanceMetadata(instanceId: string): Promise<void> {
+  const db = getDatabase();
+  await db.execute('DELETE FROM instance_metadata WHERE instance_id = ?', [instanceId]);
+}
+
+/**
+ * List all instance metadata from database
+ */
+async function listInstanceMetadata(): Promise<InstanceMetadataRow[]> {
+  const db = getDatabase();
+  return db.query<InstanceMetadataRow>('SELECT * FROM instance_metadata');
+}
+
+/**
+ * Parse JSON field from MySQL (can be object or string)
+ */
+function parseJsonField(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value === 'object') return value as Record<string, unknown>;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+/**
+ * Parse labels field (string values only)
+ */
+function parseLabels(value: unknown): Record<string, string> {
+  const parsed = parseJsonField(value);
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(parsed)) {
+    if (typeof val === 'string') {
+      result[key] = val;
+    }
+  }
+  return result;
+}
+
+/**
+ * Convert to API response
+ */
+function toResponse(
+  metadata: InstanceMetadataRow,
+  orchestratorData?: OrchestratorInstanceRow
+) {
+  const labels = parseLabels(metadata.labels);
+  const extra = parseJsonField(metadata.extra);
+
+  // Parse instance_id to get host and port
+  const [host, portStr] = metadata.instance_id.split(':');
+  const port = parseInt(portStr, 10) || 3306;
+
   return {
-    instance_id: createInstanceId(instance.host, instance.port),
-    host: instance.host,
-    port: instance.port,
-    server_id: instance.serverId ?? null,
-    role: instance.role,
-    state: instance.state,
-    version: instance.version ?? null,
-    cluster_id: instance.clusterId ?? null,
-    replication_lag: instance.replicationLag ?? null,
-    labels: instance.labels,
-    last_seen: instance.lastSeen.toISOString(),
-    created_at: instance.lastSeen.toISOString(),
+    instance_id: metadata.instance_id,
+    host,
+    port,
+    server_id: orchestratorData?.server_id ?? null,
+    role: orchestratorData ? (orchestratorData as unknown as { master_host?: string }).master_host ? 'replica' : 'primary' : 'unknown',
+    state: orchestratorData ? 'online' : 'offline',
+    version: orchestratorData?.version ?? null,
+    cluster_id: orchestratorData?.cluster_name ?? null,
+    replication_lag: orchestratorData?.replication_lag_seconds ?? null,
+    labels,
+    extra,
+    last_seen: orchestratorData?.last_seen ?? metadata.updated_at,
+    created_at: metadata.created_at,
   };
 }
 
@@ -48,11 +155,26 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
       page_size?: number;
     };
   }>('/', async (request) => {
-    let instances = Array.from(instanceRegistry.values());
+    const metadataList = await listInstanceMetadata();
+    const orchestrator = getOrchestratorClient();
+
+    // Get topology from Orchestrator for enrichment
+    let instances = await Promise.all(
+      metadataList.map(async (m) => {
+        const [host, portStr] = m.instance_id.split(':');
+        const port = parseInt(portStr, 10) || 3306;
+        try {
+          const topo = await orchestrator.getInstance(host, port);
+          return toResponse(m, topo as unknown as OrchestratorInstanceRow);
+        } catch {
+          return toResponse(m);
+        }
+      })
+    );
 
     // Apply filters
     if (request.query.cluster_id) {
-      instances = instances.filter(i => i.clusterId === request.query.cluster_id);
+      instances = instances.filter(i => i.cluster_id === request.query.cluster_id);
     }
     if (request.query.state) {
       instances = instances.filter(i => i.state === request.query.state);
@@ -69,7 +191,7 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
     const end = start + pageSize;
 
     return {
-      items: instances.slice(start, end).map(instanceToResponse),
+      items: instances.slice(start, end),
       total,
       page,
       page_size: pageSize,
@@ -80,11 +202,21 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{
     Params: { instance_id: string };
   }>('/:instance_id', async (request) => {
-    const instance = instanceRegistry.get(request.params.instance_id);
-    if (!instance) {
+    const metadata = await getInstanceMetadata(request.params.instance_id);
+    if (!metadata) {
       throw new NotFoundError('Instance', request.params.instance_id);
     }
-    return instanceToResponse(instance);
+
+    const [host, portStr] = request.params.instance_id.split(':');
+    const port = parseInt(portStr, 10) || 3306;
+    const orchestrator = getOrchestratorClient();
+
+    try {
+      const topo = await orchestrator.getInstance(host, port);
+      return toResponse(metadata, topo as unknown as OrchestratorInstanceRow);
+    } catch {
+      return toResponse(metadata);
+    }
   });
 
   // Register instance
@@ -99,30 +231,38 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
     const port = request.body.port || 3306;
     const instanceId = createInstanceId(request.body.host, port);
 
-    if (instanceRegistry.has(instanceId)) {
+    const existing = await getInstanceMetadata(instanceId);
+    if (existing) {
       throw new AlreadyExistsError('Instance', instanceId);
     }
 
-    const instance = createMySQLInstance(request.body.host, port, {
-      clusterId: request.body.cluster_id,
-      labels: request.body.labels || {},
-      state: InstanceState.OFFLINE,
-      role: InstanceRole.UNKNOWN,
+    await saveInstanceMetadata(instanceId, request.body.labels || {}, {
+      registeredCluster: request.body.cluster_id,
     });
 
-    instanceRegistry.set(instanceId, instance);
+    // Also discover in Orchestrator
+    const orchestrator = getOrchestratorClient();
+    try {
+      await orchestrator.discoverInstance(request.body.host, port);
+    } catch (error) {
+      fastify.log.warn({ error, instanceId }, 'Failed to discover instance in Orchestrator');
+    }
+
+    const metadata = await getInstanceMetadata(instanceId);
     reply.code(201);
-    return instanceToResponse(instance);
+    return toResponse(metadata!);
   });
 
   // Deregister instance
   fastify.delete<{
     Params: { instance_id: string };
   }>('/:instance_id', async (request, reply) => {
-    if (!instanceRegistry.has(request.params.instance_id)) {
+    const existing = await getInstanceMetadata(request.params.instance_id);
+    if (!existing) {
       throw new NotFoundError('Instance', request.params.instance_id);
     }
-    instanceRegistry.delete(request.params.instance_id);
+
+    await deleteInstanceMetadata(request.params.instance_id);
     reply.code(204);
   });
 
@@ -136,7 +276,7 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
     const taskId = uuidv4();
 
     // Simplified discovery - in production this would scan networks
-    const discovered: MySQLInstance[] = [];
+    const discovered: { instance_id: string; host: string; port: number }[] = [];
 
     for (const segment of request.body.network_segments) {
       fastify.log.info({ segment }, 'Scanning network segment');
@@ -145,7 +285,10 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
     // Register discovered instances
     for (const instance of discovered) {
       const instanceId = createInstanceId(instance.host, instance.port);
-      instanceRegistry.set(instanceId, instance);
+      const existing = await getInstanceMetadata(instanceId);
+      if (!existing) {
+        await saveInstanceMetadata(instanceId, {}, { discovered: true });
+      }
     }
 
     reply.code(202);
@@ -154,7 +297,7 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
       status: 'completed',
       network_segments: request.body.network_segments,
       instances_found: discovered.length,
-      instances: discovered.map(instanceToResponse),
+      instances: discovered,
       completed_at: new Date().toISOString(),
     };
   });
@@ -164,14 +307,18 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { instance_id: string };
     Body: { reason: string; duration_minutes?: number };
   }>('/:instance_id/maintenance', async (request) => {
-    const instance = instanceRegistry.get(request.params.instance_id);
-    if (!instance) {
+    const metadata = await getInstanceMetadata(request.params.instance_id);
+    if (!metadata) {
       throw new NotFoundError('Instance', request.params.instance_id);
     }
 
-    instance.state = InstanceState.MAINTENANCE;
-    instance.extra.maintenance_reason = request.body.reason;
-    instance.extra.maintenance_duration = request.body.duration_minutes || 60;
+    const extra = parseJsonField(metadata.extra);
+    extra.maintenance_reason = request.body.reason;
+    extra.maintenance_duration = request.body.duration_minutes || 60;
+    extra.maintenance_mode = true;
+
+    const labels = parseLabels(metadata.labels);
+    await saveInstanceMetadata(request.params.instance_id, labels, extra);
 
     return { message: `Instance ${request.params.instance_id} set to maintenance mode` };
   });
@@ -180,21 +327,25 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete<{
     Params: { instance_id: string };
   }>('/:instance_id/maintenance', async (request, reply) => {
-    const instance = instanceRegistry.get(request.params.instance_id);
-    if (!instance) {
+    const metadata = await getInstanceMetadata(request.params.instance_id);
+    if (!metadata) {
       throw new NotFoundError('Instance', request.params.instance_id);
     }
 
-    if (instance.state !== InstanceState.MAINTENANCE) {
+    const extra = parseJsonField(metadata.extra);
+    if (!extra.maintenance_mode) {
       return reply.code(400).send({
         error: 'INVALID_STATE',
         message: `Instance is not in maintenance mode: ${request.params.instance_id}`,
       });
     }
 
-    instance.state = InstanceState.ONLINE;
-    delete instance.extra.maintenance_reason;
-    delete instance.extra.maintenance_duration;
+    delete extra.maintenance_reason;
+    delete extra.maintenance_duration;
+    delete extra.maintenance_mode;
+
+    const labels = parseLabels(metadata.labels);
+    await saveInstanceMetadata(request.params.instance_id, labels, extra);
 
     return { message: `Instance ${request.params.instance_id} removed from maintenance mode` };
   });
@@ -203,10 +354,18 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{
     Params: { instance_id: string };
   }>('/:instance_id/metrics', async (request) => {
-    const instance = instanceRegistry.get(request.params.instance_id);
-    if (!instance) {
+    const metadata = await getInstanceMetadata(request.params.instance_id);
+    if (!metadata) {
       throw new NotFoundError('Instance', request.params.instance_id);
     }
+
+    const [host, portStr] = request.params.instance_id.split(':');
+    const port = parseInt(portStr, 10) || 3306;
+
+    const instance = createMySQLInstance(host, port, {
+      state: InstanceState.ONLINE,
+      role: InstanceRole.UNKNOWN,
+    });
 
     const collector = getMetricsCollector();
     const metrics = await collector.collectMetrics(instance);
@@ -221,31 +380,49 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{
     Params: { instance_id: string };
   }>('/:instance_id/health', async (request) => {
-    const instance = instanceRegistry.get(request.params.instance_id);
-    if (!instance) {
+    const metadata = await getInstanceMetadata(request.params.instance_id);
+    if (!metadata) {
       throw new NotFoundError('Instance', request.params.instance_id);
     }
+
+    const [host, portStr] = request.params.instance_id.split(':');
+    const port = parseInt(portStr, 10) || 3306;
+    const orchestrator = getOrchestratorClient();
+
+    let isOnline = false;
+    let replicationLag: number | undefined;
+
+    try {
+      const topo = await orchestrator.getInstance(host, port);
+      isOnline = true;
+      replicationLag = (topo as unknown as { replication_lag_seconds?: number }).replication_lag_seconds;
+    } catch {
+      isOnline = false;
+    }
+
+    const extra = parseJsonField(metadata.extra);
+    const inMaintenance = extra.maintenance_mode === true;
 
     const checks = [
       {
         check_name: 'connectivity',
-        status: instance.state === InstanceState.ONLINE ? 'healthy' : 'unhealthy',
-        value: instance.state === InstanceState.ONLINE ? 1 : 0,
-        message: instance.state === InstanceState.ONLINE ? 'Instance is reachable' : 'Instance is not reachable',
+        status: inMaintenance ? 'maintenance' : (isOnline ? 'healthy' : 'unhealthy'),
+        value: isOnline ? 1 : 0,
+        message: inMaintenance ? 'Instance is in maintenance mode' : (isOnline ? 'Instance is reachable' : 'Instance is not reachable'),
       },
       {
         check_name: 'replication_lag',
-        status: instance.replicationLag !== undefined && instance.replicationLag < 10 ? 'healthy' : 'unhealthy',
-        value: instance.replicationLag ?? 0,
-        message: instance.replicationLag !== undefined
-          ? `Replication lag: ${instance.replicationLag}s`
+        status: replicationLag !== undefined && replicationLag < 10 ? 'healthy' : 'unhealthy',
+        value: replicationLag ?? 0,
+        message: replicationLag !== undefined
+          ? `Replication lag: ${replicationLag}s`
           : 'Replication not configured',
       },
     ];
 
     return {
       instance_id: request.params.instance_id,
-      status: instance.state === InstanceState.ONLINE ? 'healthy' : 'unhealthy',
+      status: inMaintenance ? 'maintenance' : (isOnline ? 'healthy' : 'unhealthy'),
       checks,
     };
   });

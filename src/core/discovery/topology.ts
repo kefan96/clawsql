@@ -345,7 +345,12 @@ export class OrchestratorClient {
    * Parse Orchestrator topology response into MySQLCluster
    */
   private parseTopology(data: Record<string, unknown>, clusterName: string): MySQLCluster {
-    const cluster = createMySQLCluster(clusterName, clusterName);
+    // Try to get cluster alias for friendly display name
+    // ClusterAlias is user-configured, SuggestedClusterAlias is auto-generated from primary hostname
+    const clusterAlias = (data.ClusterAlias as string) ||
+                         (data.SuggestedClusterAlias as string);
+    const displayName = clusterAlias || clusterName;
+    const cluster = createMySQLCluster(clusterName, displayName);
 
     // Check if this is an instance node
     if (data.Alias) {
@@ -387,13 +392,24 @@ export class OrchestratorClient {
    * The /api/cluster/{name} endpoint returns a flat array of instances
    */
   private parseTopologyFromArray(instances: Record<string, unknown>[], clusterName: string): MySQLCluster {
-    // Try to get the actual cluster name from instance data
+    // Try to get the actual cluster name and alias from instance data
     let actualClusterName = clusterName;
-    if (instances.length > 0 && instances[0].ClusterName) {
-      actualClusterName = instances[0].ClusterName as string;
+    let clusterAlias = '';
+
+    if (instances.length > 0) {
+      // ClusterName is the canonical identifier (hostname:port)
+      if (instances[0].ClusterName) {
+        actualClusterName = instances[0].ClusterName as string;
+      }
+      // ClusterAlias is the user-friendly name configured in Orchestrator
+      // SuggestedClusterAlias is auto-generated from the primary hostname
+      clusterAlias = (instances[0].ClusterAlias as string) ||
+                     (instances[0].SuggestedClusterAlias as string) || '';
     }
 
-    const cluster = createMySQLCluster(actualClusterName, actualClusterName);
+    // Use clusterAlias as display name if available, otherwise use clusterName
+    const displayName = clusterAlias || actualClusterName;
+    const cluster = createMySQLCluster(actualClusterName, displayName);
 
     for (const instanceData of instances) {
       const instance = this.parseInstance(instanceData);

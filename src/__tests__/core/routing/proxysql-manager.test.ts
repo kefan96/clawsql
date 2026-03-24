@@ -10,6 +10,15 @@ import mysql from 'mysql2/promise';
 jest.mock('mysql2/promise');
 const mockedMysql = mysql as jest.Mocked<typeof mysql>;
 
+// Mock database module
+jest.mock('../../../utils/database.js', () => ({
+  getDatabase: jest.fn(() => ({
+    execute: jest.fn().mockResolvedValue({ changes: 1, lastId: 1 }),
+    query: jest.fn().mockResolvedValue([]),
+    get: jest.fn().mockResolvedValue(undefined),
+  })),
+}));
+
 describe('ProxySQLManager', () => {
   let manager: ProxySQLManager;
   let mockConnection: {

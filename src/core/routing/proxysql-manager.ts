@@ -8,6 +8,7 @@ import mysql from 'mysql2/promise';
 import { getLogger } from '../../utils/logger.js';
 import { MySQLInstance, MySQLCluster } from '../../types/index.js';
 import { ProxySQLSettings } from '../../config/settings.js';
+import { getDatabase } from '../../utils/database.js';
 
 const logger = getLogger('proxysql');
 
@@ -140,8 +141,7 @@ export class ProxySQLManager {
     weight: number = 1,
     maxConnections: number = 1000
   ): Promise<boolean> {
-    const key = `${hostgroupId}:${instance.host}:${instance.port}`;
-    this.servers.set(key, {
+    const server: ProxySQLServer = {
       hostgroupId,
       hostname: instance.host,
       port: instance.port,
@@ -149,7 +149,10 @@ export class ProxySQLManager {
       status: 'ONLINE',
       maxConnections,
       comment: `ClawSQL: ${instance.host}:${instance.port}`,
-    });
+    };
+
+    const key = `${hostgroupId}:${instance.host}:${instance.port}`;
+    this.servers.set(key, server);
 
     try {
       await this.execute(
@@ -160,10 +163,16 @@ export class ProxySQLManager {
       );
       await this.execute('LOAD MYSQL SERVERS TO RUNTIME');
       logger.info({ host: instance.host, port: instance.port, hostgroupId }, 'Server added to ProxySQL');
+
+      // Mirror to database
+      await this.mirrorServer(server, 'INSERT');
+
       return true;
     } catch (error) {
       // Server might already exist
       logger.debug({ error, key }, 'Server may already exist');
+      // Still mirror to database in case it's a race condition
+      await this.mirrorServer(server, 'INSERT');
       return true;
     }
   }
@@ -185,6 +194,15 @@ export class ProxySQLManager {
    * Remove a MySQL server from ProxySQL
    */
   async removeServer(instance: MySQLInstance, hostgroupId: number): Promise<boolean> {
+    const server: ProxySQLServer = {
+      hostgroupId,
+      hostname: instance.host,
+      port: instance.port,
+      weight: 0,
+      status: 'OFFLINE_HARD',
+      maxConnections: 0,
+    };
+
     try {
       await this.execute(
         'DELETE FROM mysql_servers WHERE hostname = ? AND port = ? AND hostgroup_id = ?',
@@ -195,6 +213,10 @@ export class ProxySQLManager {
       const key = `${hostgroupId}:${instance.host}:${instance.port}`;
       this.servers.delete(key);
       logger.info({ host: instance.host, port: instance.port }, 'Server removed from ProxySQL');
+
+      // Mirror to database (delete)
+      await this.mirrorServer(server, 'DELETE');
+
       return true;
     } catch (error) {
       logger.error({ error }, 'Failed to remove server');
@@ -249,8 +271,11 @@ export class ProxySQLManager {
            VALUES (?, ?, ?, ?, ?, ?)`,
           [rule.ruleId, rule.active ? 1 : 0, rule.matchPattern, rule.destinationHostgroup, rule.apply ? 1 : 0, rule.comment || '']
         );
+        // Mirror rule to database
+        await this.mirrorQueryRule(rule);
       } catch {
-        // Rule might already exist
+        // Rule might already exist, still mirror
+        await this.mirrorQueryRule(rule);
       }
     }
 
@@ -314,6 +339,9 @@ export class ProxySQLManager {
          ON DUPLICATE KEY UPDATE comment = VALUES(comment)`,
         [writerHostgroup, readerHostgroup, `Cluster: ${cluster.name}`]
       );
+
+      // Mirror hostgroup to database
+      await this.mirrorHostgroup(writerHostgroup, readerHostgroup, cluster.clusterId, `Cluster: ${cluster.name}`);
 
       // Setup read/write split rules
       await this.setupReadWriteSplit(cluster, writerHostgroup, readerHostgroup);
@@ -432,6 +460,273 @@ export class ProxySQLManager {
       servers: this.servers.size,
       rules: this.rules.length,
     };
+  }
+
+  // =========================================================================
+  // Database Mirror Methods
+  // =========================================================================
+
+  /**
+   * Mirror server configuration to metadata database
+   */
+  private async mirrorServer(
+    server: ProxySQLServer,
+    action: 'INSERT' | 'DELETE'
+  ): Promise<void> {
+    const db = getDatabase();
+    try {
+      if (action === 'INSERT') {
+        await db.execute(
+          `INSERT INTO proxysql_servers (hostgroup_id, hostname, port, status, weight, max_connections, comment)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE status = VALUES(status), weight = VALUES(weight), synced_at = NOW()`,
+          [
+            server.hostgroupId,
+            server.hostname,
+            server.port,
+            server.status,
+            server.weight,
+            server.maxConnections,
+            server.comment || '',
+          ]
+        );
+      } else {
+        await db.execute(
+          'DELETE FROM proxysql_servers WHERE hostgroup_id = ? AND hostname = ? AND port = ?',
+          [server.hostgroupId, server.hostname, server.port]
+        );
+      }
+
+      // Log to audit
+      await this.auditLog(
+        action === 'INSERT' ? 'ADD_SERVER' : 'REMOVE_SERVER',
+        'server',
+        `${server.hostgroupId}:${server.hostname}:${server.port}`,
+        null,
+        server
+      );
+    } catch (error) {
+      logger.error({ error, server, action }, 'Failed to mirror server to database');
+    }
+  }
+
+  /**
+   * Mirror hostgroup configuration to metadata database
+   */
+  private async mirrorHostgroup(
+    writerHostgroup: number,
+    readerHostgroup: number,
+    clusterId?: string,
+    comment?: string
+  ): Promise<void> {
+    const db = getDatabase();
+    try {
+      await db.execute(
+        `INSERT INTO proxysql_hostgroups (writer_hostgroup, reader_hostgroup, cluster_id, comment)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE reader_hostgroup = VALUES(reader_hostgroup), cluster_id = VALUES(cluster_id)`,
+        [writerHostgroup, readerHostgroup, clusterId || null, comment || '']
+      );
+
+      await this.auditLog(
+        'SYNC_HOSTGROUP',
+        'hostgroup',
+        `${writerHostgroup}/${readerHostgroup}`,
+        null,
+        { writerHostgroup, readerHostgroup, clusterId }
+      );
+    } catch (error) {
+      logger.error({ error, writerHostgroup, readerHostgroup }, 'Failed to mirror hostgroup to database');
+    }
+  }
+
+  /**
+   * Mirror query rule to metadata database
+   */
+  private async mirrorQueryRule(rule: ProxySQLRule): Promise<void> {
+    const db = getDatabase();
+    try {
+      await db.execute(
+        `INSERT INTO proxysql_query_rules (rule_id, active, match_pattern, destination_hostgroup, apply, comment)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE active = VALUES(active), match_pattern = VALUES(match_pattern)`,
+        [
+          rule.ruleId,
+          rule.active ? 1 : 0,
+          rule.matchPattern,
+          rule.destinationHostgroup,
+          rule.apply ? 1 : 0,
+          rule.comment || '',
+        ]
+      );
+    } catch (error) {
+      logger.error({ error, rule }, 'Failed to mirror query rule to database');
+    }
+  }
+
+  /**
+   * Log action to audit table
+   */
+  private async auditLog(
+    action: string,
+    entityType: string,
+    entityId: string,
+    oldValue: unknown,
+    newValue: unknown
+  ): Promise<void> {
+    const db = getDatabase();
+    try {
+      await db.execute(
+        `INSERT INTO proxysql_audit_log (action, entity_type, entity_id, old_value, new_value)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          action,
+          entityType,
+          entityId,
+          oldValue ? JSON.stringify(oldValue) : null,
+          newValue ? JSON.stringify(newValue) : null,
+        ]
+      );
+    } catch (error) {
+      logger.error({ error, action, entityType, entityId }, 'Failed to write audit log');
+    }
+  }
+
+  /**
+   * Restore ProxySQL configuration from metadata database
+   * Called on startup to sync ProxySQL with stored config
+   */
+  async restoreFromDatabase(): Promise<{ servers: number; hostgroups: number; rules: number }> {
+    logger.info('Restoring ProxySQL configuration from metadata database');
+
+    const result = { servers: 0, hostgroups: 0, rules: 0 };
+
+    try {
+      const db = getDatabase();
+
+      // Restore servers
+      const servers = await db.query<{
+        hostgroup_id: number;
+        hostname: string;
+        port: number;
+        status: string;
+        weight: number;
+        max_connections: number;
+        comment: string;
+      }>('SELECT * FROM proxysql_servers WHERE status = "ONLINE"');
+
+      for (const server of servers) {
+        try {
+          await this.addServer(
+            { host: server.hostname, port: server.port } as MySQLInstance,
+            server.hostgroup_id,
+            server.weight,
+            server.max_connections
+          );
+          result.servers++;
+        } catch (error) {
+          logger.warn({ error, server }, 'Failed to restore server');
+        }
+      }
+
+      // Restore hostgroups
+      const hostgroups = await db.query<{
+        writer_hostgroup: number;
+        reader_hostgroup: number;
+        cluster_id: string;
+        comment: string;
+      }>('SELECT * FROM proxysql_hostgroups');
+
+      for (const hg of hostgroups) {
+        try {
+          await this.execute(
+            `INSERT INTO mysql_replication_hostgroups (writer_hostgroup, reader_hostgroup, comment)
+             VALUES (?, ?, ?)`,
+            [hg.writer_hostgroup, hg.reader_hostgroup, hg.comment || '']
+          );
+          result.hostgroups++;
+        } catch (error) {
+          logger.debug({ error, hostgroup: hg }, 'Hostgroup may already exist');
+        }
+      }
+
+      // Restore query rules
+      const rules = await db.query<{
+        rule_id: number;
+        active: number;
+        match_pattern: string;
+        destination_hostgroup: number;
+        apply: number;
+        comment: string;
+      }>('SELECT * FROM proxysql_query_rules WHERE active = 1');
+
+      for (const rule of rules) {
+        try {
+          await this.execute(
+            `INSERT INTO mysql_query_rules (rule_id, active, match_pattern, destination_hostgroup, apply, comment)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [rule.rule_id, rule.active, rule.match_pattern, rule.destination_hostgroup, rule.apply, rule.comment || '']
+          );
+          result.rules++;
+        } catch (error) {
+          logger.debug({ error, rule }, 'Query rule may already exist');
+        }
+      }
+
+      // Load to runtime
+      await this.loadConfigToRuntime();
+
+      logger.info(result, 'ProxySQL configuration restored from database');
+    } catch (error) {
+      logger.error({ error }, 'Failed to restore ProxySQL configuration from database');
+    }
+
+    return result;
+  }
+
+  /**
+   * Get all mirrored servers from database
+   */
+  async getMirroredServers(): Promise<ProxySQLServer[]> {
+    const db = getDatabase();
+    const rows = await db.query<{
+      hostgroup_id: number;
+      hostname: string;
+      port: number;
+      status: string;
+      weight: number;
+      max_connections: number;
+      comment: string;
+    }>('SELECT * FROM proxysql_servers ORDER BY hostgroup_id, hostname');
+
+    return rows.map((row) => ({
+      hostgroupId: row.hostgroup_id,
+      hostname: row.hostname,
+      port: row.port,
+      status: row.status as 'ONLINE' | 'OFFLINE_SOFT' | 'OFFLINE_HARD',
+      weight: row.weight,
+      maxConnections: row.max_connections,
+      comment: row.comment,
+    }));
+  }
+
+  /**
+   * Get audit log entries
+   */
+  async getAuditLog(limit: number = 100): Promise<{
+    id: number;
+    action: string;
+    entity_type: string;
+    entity_id: string;
+    old_value: unknown;
+    new_value: unknown;
+    changed_at: Date;
+  }[]> {
+    const db = getDatabase();
+    return db.query(
+      'SELECT * FROM proxysql_audit_log ORDER BY changed_at DESC LIMIT ?',
+      [limit]
+    );
   }
 }
 

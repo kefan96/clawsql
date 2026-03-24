@@ -16,7 +16,7 @@ describe('Settings', () => {
   beforeEach(() => {
     // Clear all env vars that affect settings
     delete process.env.API_PORT;
-    delete process.env.DB_TYPE;
+    delete process.env.METADATA_DB_HOST;
     delete process.env.AUTO_FAILOVER_ENABLED;
     delete process.env.PROXYSQL_ADMIN_USER;
     delete process.env.PROXYSQL_ADMIN_PASSWORD;
@@ -60,17 +60,16 @@ describe('Settings', () => {
     });
   });
 
-  describe('DatabaseSettings', () => {
+  describe('MetadataDbSettings', () => {
     it('should have correct defaults', () => {
       const settings = getSettings();
 
-      expect(settings.database.type).toBe('sqlite');
-      expect(settings.database.sqlitePath).toBe('/data/clawsql.db');
-      expect(settings.database.host).toBe('localhost');
-      expect(settings.database.port).toBe(3306);
-      expect(settings.database.name).toBe('clawsql');
-      expect(settings.database.user).toBe('clawsql');
-      expect(settings.database.poolSize).toBe(10);
+      expect(settings.metadataDb.host).toBeUndefined();
+      expect(settings.metadataDb.port).toBe(3306);
+      expect(settings.metadataDb.name).toBe('clawsql_meta');
+      expect(settings.metadataDb.user).toBe('clawsql');
+      expect(settings.metadataDb.password).toBe('clawsql_password');
+      expect(settings.metadataDb.poolSize).toBe(10);
     });
   });
 
@@ -172,14 +171,14 @@ describe('Settings', () => {
   describe('Environment variable loading', () => {
     it('should load settings from environment variables', () => {
       process.env.API_PORT = '9090';
-      process.env.DB_TYPE = 'mysql';
+      process.env.METADATA_DB_HOST = 'custom-mysql';
       process.env.AUTO_FAILOVER_ENABLED = 'false';
 
       resetSettings();
       const settings = getSettings();
 
       expect(settings.api.port).toBe(9090);
-      expect(settings.database.type).toBe('mysql');
+      expect(settings.metadataDb.host).toBe('custom-mysql');
       expect(settings.failover.autoFailoverEnabled).toBe(false);
     });
   });

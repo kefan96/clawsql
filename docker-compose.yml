@@ -30,13 +30,12 @@ services:
       - PROXYSQL_HOST=proxysql
       - PROXYSQL_ADMIN_PORT=6032
       - PROMETHEUS_URL=http://prometheus:9090
-      # Database for ClawSQL metadata (SQLite by default, or MySQL)
-      - DB_TYPE=${DB_TYPE:-sqlite}
-      - DB_HOST=${DB_HOST:-}
-      - DB_PORT=${DB_PORT:-3306}
-      - DB_NAME=${DB_NAME:-clawsql}
-      - DB_USER=${DB_USER:-}
-      - DB_PASSWORD=${DB_PASSWORD:-}
+      # Metadata Database (shared with Orchestrator)
+      - METADATA_DB_HOST=${METADATA_DB_HOST:-metadata-mysql}
+      - METADATA_DB_PORT=${METADATA_DB_PORT:-3306}
+      - METADATA_DB_NAME=${METADATA_DB_NAME:-clawsql_meta}
+      - METADATA_DB_USER=${METADATA_DB_USER:-clawsql}
+      - METADATA_DB_PASSWORD=${METADATA_DB_PASSWORD:-clawsql_password}
       # MySQL monitoring credentials (for your MySQL instances)
       - MYSQL_MONITOR_USER=${MYSQL_MONITOR_USER:-monitor}
       - MYSQL_MONITOR_PASSWORD=${MYSQL_MONITOR_PASSWORD:-}
@@ -60,11 +59,10 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    volumes:
-      - clawsql-data:/data
 
   # =============================================================================
   # Orchestrator - MySQL Topology Management
+  # Uses shared metadata MySQL database
   # =============================================================================
   orchestrator:
     image: openarkcode/orchestrator:latest
@@ -74,7 +72,6 @@ services:
       - "3000:3000"
     volumes:
       - ./docker/orchestrator/orchestrator.conf.json:/etc/orchestrator.conf.json
-      - orchestrator-data:/var/lib/orchestrator
     networks:
       - clawsql-network
     restart: unless-stopped
@@ -173,6 +170,32 @@ services:
   #     - clawsql-network
   #   restart: unless-stopped
 
+  # =============================================================================
+  # Metadata MySQL - Shared Database for Orchestrator and ClawSQL
+  # Auto-provisioned if METADATA_DB_HOST is not set
+  # =============================================================================
+  metadata-mysql:
+    image: mysql:8.0
+    container_name: metadata-mysql
+    hostname: metadata-mysql
+    profiles:
+      - metadata
+    environment:
+      MYSQL_ROOT_PASSWORD: ${METADATA_DB_ROOT_PASSWORD:-metadata_root}
+      MYSQL_DATABASE: ${METADATA_DB_NAME:-clawsql_meta}
+      MYSQL_USER: ${METADATA_DB_USER:-clawsql}
+      MYSQL_PASSWORD: ${METADATA_DB_PASSWORD:-clawsql_password}
+    volumes:
+      - metadata-mysql-data:/var/lib/mysql
+    networks:
+      - clawsql-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 # =============================================================================
 # Networks
 # =============================================================================
@@ -187,8 +210,7 @@ networks:
 # Volumes
 # =============================================================================
 volumes:
-  clawsql-data:
-  orchestrator-data:
+  metadata-mysql-data:
   proxysql-data:
   prometheus-data:
   grafana-data:

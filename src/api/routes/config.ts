@@ -22,15 +22,9 @@ const configRoutes: FastifyPluginAsync = async (fastify) => {
         port: settings.api.port,
       },
       database: {
-        type: settings.database.type,
-        ...(settings.database.type === 'mysql' && {
-          host: settings.database.host,
-          port: settings.database.port,
-          name: settings.database.name,
-        }),
-        ...(settings.database.type === 'sqlite' && {
-          path: settings.database.sqlitePath,
-        }),
+        host: settings.metadataDb.host || 'metadata-mysql',
+        port: settings.metadataDb.port,
+        name: settings.metadataDb.name,
       },
       orchestrator: {
         url: settings.orchestrator.url,

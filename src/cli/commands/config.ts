@@ -32,16 +32,10 @@ export const configCommand: Command = {
     console.log(formatter.keyValue('Port', settings.api.port));
 
     // Database settings
-    console.log(chalk.bold('\n💾 Database'));
-    if (settings.database.type === 'sqlite') {
-      console.log(formatter.keyValue('Type', 'SQLite'));
-      console.log(formatter.keyValue('Path', settings.database.sqlitePath));
-    } else {
-      console.log(formatter.keyValue('Type', 'MySQL'));
-      console.log(formatter.keyValue('Host', settings.database.host));
-      console.log(formatter.keyValue('Port', settings.database.port));
-      console.log(formatter.keyValue('Database', settings.database.name));
-    }
+    console.log(chalk.bold('\n💾 Metadata Database'));
+    console.log(formatter.keyValue('Host', settings.metadataDb.host || 'metadata-mysql (auto)'));
+    console.log(formatter.keyValue('Port', settings.metadataDb.port.toString()));
+    console.log(formatter.keyValue('Database', settings.metadataDb.name));
 
     // Orchestrator settings
     console.log(chalk.bold('\n🔗 Orchestrator'));
