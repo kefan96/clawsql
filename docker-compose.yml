@@ -36,11 +36,11 @@ services:
       - METADATA_DB_NAME=${METADATA_DB_NAME:-clawsql_meta}
       - METADATA_DB_USER=${METADATA_DB_USER:-clawsql}
       - METADATA_DB_PASSWORD=${METADATA_DB_PASSWORD:-clawsql_password}
-      # MySQL monitoring credentials (for your MySQL instances)
-      - MYSQL_MONITOR_USER=${MYSQL_MONITOR_USER:-monitor}
-      - MYSQL_MONITOR_PASSWORD=${MYSQL_MONITOR_PASSWORD:-}
+      # MySQL credentials (for your MySQL instances)
+      - MYSQL_ADMIN_USER=${MYSQL_ADMIN_USER:-clawsql}
+      - MYSQL_ADMIN_PASSWORD=${MYSQL_ADMIN_PASSWORD:-clawsql_password}
       - MYSQL_REPLICATION_USER=${MYSQL_REPLICATION_USER:-repl}
-      - MYSQL_REPLICATION_PASSWORD=${MYSQL_REPLICATION_PASSWORD:-}
+      - MYSQL_REPLICATION_PASSWORD=${MYSQL_REPLICATION_PASSWORD:-repl_password}
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
@@ -78,7 +78,7 @@ services:
 
   # =============================================================================
   # ProxySQL - MySQL Proxy with Routing
-  # Starts empty - configured dynamically via ClawSQL API
+  # Starts with demo cluster configuration
   # =============================================================================
   proxysql:
     image: proxysql/proxysql:latest
@@ -89,7 +89,10 @@ services:
       - "6033:6033"  # MySQL traffic
     volumes:
       - ./docker/proxysql/proxysql.cnf:/etc/proxysql.cnf
+      - ./docker/proxysql/entrypoint.sh:/entrypoint.sh:ro
+      - ./docker/proxysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - proxysql-data:/var/lib/proxysql
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
     networks:
       - clawsql-network
     restart: unless-stopped

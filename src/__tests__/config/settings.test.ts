@@ -152,8 +152,8 @@ describe('Settings', () => {
     it('should have correct defaults', () => {
       const settings = getSettings();
 
-      expect(settings.mysql.monitorUser).toBe('monitor');
-      expect(settings.mysql.monitorPassword).toBe('');
+      expect(settings.mysql.adminUser).toBe('clawsql');
+      expect(settings.mysql.adminPassword).toBe('');
       expect(settings.mysql.replicationUser).toBe('repl');
       expect(settings.mysql.replicationPassword).toBe('');
     });

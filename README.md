@@ -113,6 +113,18 @@ Try ClawSQL with a demo MySQL cluster (primary + 2 replicas):
 
 Full API documentation at http://localhost:8080/docs when running.
 
+### CLI Commands
+
+ClawSQL provides an interactive CLI with the following built-in commands:
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/exit` | `/quit`, `/q` | Exit the CLI |
+| `/clear` | `/cls` | Clear the screen |
+| `/help` | - | Show available commands |
+
+Tab completion is available for all commands and their subcommands.
+
 ## Deployment
 
 ### Docker Compose (Recommended)

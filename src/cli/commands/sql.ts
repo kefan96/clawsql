@@ -49,14 +49,18 @@ export const sqlCommand: Command = {
 
       // Execute query via ProxySQL MySQL interface
       // Note: This requires a MySQL connection to ProxySQL's MySQL port (6033)
-      // Using root user configured in ProxySQL for query routing
+      // Using SQL user configured in settings (defaults to root for demo mode)
       const mysql = await import('mysql2/promise');
+
+      // Get admin credentials from settings
+      const adminUser = ctx.settings.mysql.adminUser;
+      const adminPassword = ctx.settings.mysql.adminPassword;
 
       const connection = await mysql.createConnection({
         host: ctx.settings.proxysql.host,
         port: ctx.settings.proxysql.mysqlPort,
-        user: 'root',
-        password: 'rootpassword',
+        user: adminUser,
+        password: adminPassword,
       });
 
       const [rows, fields] = await connection.execute(query);

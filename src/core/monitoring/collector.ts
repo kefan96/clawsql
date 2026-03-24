@@ -31,8 +31,8 @@ export class MetricsCollector {
       const connection = await mysql.createConnection({
         host: instance.host,
         port: instance.port,
-        user: this.settings.mysql.monitorUser,
-        password: this.settings.mysql.monitorPassword,
+        user: this.settings.mysql.adminUser,
+        password: this.settings.mysql.adminPassword,
         connectTimeout: 5000,
       });
 

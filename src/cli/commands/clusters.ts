@@ -27,12 +27,14 @@ export const clustersCommand: Command = {
       const clustersInfo = await orchestrator.getAllClustersWithInfo();
 
       if (clustersInfo.length === 0) {
-        console.log(formatter.warning('No clusters discovered.'));
-        console.log(formatter.info('Register instances with /instances register <host>'));
+        if (ctx.outputFormat === 'json') {
+          console.log(JSON.stringify({ clusters: [] }, null, 2));
+        } else {
+          console.log(formatter.warning('No clusters discovered.'));
+          console.log(formatter.info('Register instances with /instances register <host>'));
+        }
         return;
       }
-
-      console.log(formatter.header('MySQL Clusters'));
 
       const clusters: Array<{
         name: string;
@@ -53,6 +55,14 @@ export const clustersCommand: Command = {
         });
       }
 
+      // JSON output
+      if (ctx.outputFormat === 'json') {
+        console.log(JSON.stringify({ clusters }, null, 2));
+        return;
+      }
+
+      // Table output
+      console.log(formatter.header('MySQL Clusters'));
       console.log(formatter.table(clusters, [
         { key: 'name', header: 'Cluster', width: 20 },
         { key: 'alias', header: 'Orchestrator ID', width: 25 },
@@ -63,7 +73,11 @@ export const clustersCommand: Command = {
       console.log(formatter.info(`Total: ${clusters.length} clusters`));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.log(formatter.error(`Failed to list clusters: ${message}`));
+      if (ctx.outputFormat === 'json') {
+        console.log(JSON.stringify({ error: message }, null, 2));
+      } else {
+        console.log(formatter.error(`Failed to list clusters: ${message}`));
+      }
     }
   },
 };
@@ -75,12 +89,22 @@ async function syncClusters(ctx: CLIContext): Promise<void> {
   const formatter = ctx.formatter;
 
   try {
-    console.log(formatter.info('Syncing cluster topology from Orchestrator...'));
+    if (ctx.outputFormat !== 'json') {
+      console.log(formatter.info('Syncing cluster topology from Orchestrator...'));
+    }
     const clusters = await ctx.orchestrator.getClusters();
-    console.log(formatter.success(`Synced ${clusters.length} clusters.`));
+    if (ctx.outputFormat === 'json') {
+      console.log(JSON.stringify({ synced: clusters.length }, null, 2));
+    } else {
+      console.log(formatter.success(`Synced ${clusters.length} clusters.`));
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.log(formatter.error(`Sync failed: ${message}`));
+    if (ctx.outputFormat === 'json') {
+      console.log(JSON.stringify({ error: message }, null, 2));
+    } else {
+      console.log(formatter.error(`Sync failed: ${message}`));
+    }
   }
 }
 

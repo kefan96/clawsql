@@ -25,6 +25,11 @@ export interface AgentConfig {
 }
 
 /**
+ * Streaming callback type
+ */
+export type StreamCallback = (chunk: string) => void;
+
+/**
  * System prompt for the AI agent
  */
 const SYSTEM_PROMPT = `You are an AI assistant for ClawSQL, a MySQL cluster management system.
@@ -102,12 +107,14 @@ export class AIAgent {
 
   /**
    * Process a natural language input
+   * @param input The user's natural language input
+   * @param onChunk Optional callback for streaming output chunks
    */
-  async process(input: string): Promise<string> {
+  async process(input: string, onChunk?: StreamCallback): Promise<string> {
     // Try OpenClaw first if configured
     if (this.config.provider === 'openclaw') {
       try {
-        const { isOpenClawAvailable, sendToOpenClaw } = await import('./openclaw-integration.js');
+        const { isOpenClawAvailable, sendToOpenClaw, sendToOpenClawStream } = await import('./openclaw-integration.js');
 
         if (this.openclawAvailable === null) {
           this.openclawAvailable = await isOpenClawAvailable();
@@ -115,7 +122,13 @@ export class AIAgent {
 
         if (this.openclawAvailable) {
           const contextPrompt = this.buildOpenClawContext();
-          return await sendToOpenClaw(`${contextPrompt}\n\nUser query: ${input}`);
+
+          // Use streaming if callback provided
+          if (onChunk) {
+            return await sendToOpenClawStream(`${contextPrompt}\n\nUser query: ${input}`, onChunk);
+          } else {
+            return await sendToOpenClaw(`${contextPrompt}\n\nUser query: ${input}`);
+          }
         }
       } catch (error) {
         // Fall through to direct LLM
@@ -195,7 +208,20 @@ export class AIAgent {
    * Build context for OpenClaw
    */
   private buildOpenClawContext(): string {
-    return `Use the clawsql skill to help with MySQL cluster operations.`;
+    return `You are the ClawSQL assistant for MySQL cluster management.
+
+CRITICAL: Use the 'clawsql' skill. Execute commands EXACTLY as shown:
+- Topology: clawsql --command /topology
+- Health: clawsql --command /health
+- Clusters: clawsql --command /clusters
+- SQL queries: clawsql --command "/sql YOUR_QUERY_HERE"
+
+For user questions about databases/tables/users, execute SQL directly:
+- SHOW DATABASES
+- SHOW TABLES FROM database_name
+- SELECT User, Host FROM mysql.user
+
+NEVER say "I cannot" or make excuses. Execute the command. If it fails, show the actual error.`;
   }
 
   /**

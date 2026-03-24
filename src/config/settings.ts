@@ -73,8 +73,8 @@ const APISettingsSchema = z.object({
 });
 
 const MySQLCredentialsSchema = z.object({
-  monitorUser: z.string().default('monitor'),
-  monitorPassword: z.string().default(''),
+  adminUser: z.string().default('clawsql'),
+  adminPassword: z.string().default(''),
   replicationUser: z.string().default('repl'),
   replicationPassword: z.string().default(''),
 });
@@ -219,8 +219,8 @@ function loadSettings(): Settings {
     },
 
     mysql: {
-      monitorUser: getEnvString('MYSQL_MONITOR_USER'),
-      monitorPassword: getEnvString('MYSQL_MONITOR_PASSWORD'),
+      adminUser: getEnvString('MYSQL_ADMIN_USER'),
+      adminPassword: getEnvString('MYSQL_ADMIN_PASSWORD'),
       replicationUser: getEnvString('MYSQL_REPLICATION_USER'),
       replicationPassword: getEnvString('MYSQL_REPLICATION_PASSWORD'),
     },

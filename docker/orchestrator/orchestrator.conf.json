@@ -1,8 +1,8 @@
 {
   "Debug": false,
   "ListenAddress": ":3000",
-  "MySQLTopologyUser": "root",
-  "MySQLTopologyPassword": "rootpassword",
+  "MySQLTopologyUser": "clawsql",
+  "MySQLTopologyPassword": "clawsql_password",
   "MySQLTopologyCredentialsConfigFile": "",
   "MySQLTopologySSLPrivateKeyFile": "",
   "MySQLTopologySSLCertFile": "",

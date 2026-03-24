@@ -292,8 +292,8 @@ export class ProxySQLManager {
     cluster: MySQLCluster,
     writerHostgroup: number = ProxySQLManager.DEFAULT_WRITER_HOSTGROUP,
     readerHostgroup: number = ProxySQLManager.DEFAULT_READER_HOSTGROUP,
-    monitorUser?: string,
-    monitorPassword?: string
+    adminUser?: string,
+    adminPassword?: string
   ): Promise<{
     clusterId: string;
     serversAdded: number;
@@ -313,8 +313,8 @@ export class ProxySQLManager {
 
     try {
       // Set monitor credentials if provided
-      if (monitorUser && monitorPassword) {
-        await this.setMonitorCredentials(monitorUser, monitorPassword);
+      if (adminUser && adminPassword) {
+        await this.setMonitorCredentials(adminUser, adminPassword);
       }
 
       // Add primary to writer hostgroup

@@ -201,6 +201,38 @@ export class Formatter {
   }
 
   /**
+   * Convert markdown to terminal-formatted text
+   */
+  markdown(text: string): string {
+    if (!this.colors) {
+      // Strip markdown syntax for non-color output
+      return text
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/\*(.+?)\*/g, '$1')
+        .replace(/`(.+?)`/g, '$1')
+        .replace(/^#+\s*/gm, '')
+        .replace(/^(\s*)- /gm, '$1• ')
+        .replace(/^(\s*)\d+\. /gm, '$1◦ ');
+    }
+
+    return text
+      // Bold: **text**
+      .replace(/\*\*(.+?)\*\*/g, (_, p1) => chalk.bold(p1))
+      // Italic: *text*
+      .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, (_, p1) => chalk.italic(p1))
+      // Inline code: `code`
+      .replace(/`([^`]+)`/g, (_, p1) => chalk.cyan(p1))
+      // Headers (must be at start of line)
+      .replace(/^### (.+)$/gm, (_, p1) => '\n' + chalk.bold.blue(p1))
+      .replace(/^## (.+)$/gm, (_, p1) => '\n' + chalk.bold.underline(p1))
+      .replace(/^# (.+)$/gm, (_, p1) => '\n' + chalk.bold.underline.blue(p1) + '\n')
+      // Bullet points (including indented)
+      .replace(/^(\s*)- (.+)$/gm, (_, indent, p1) => `${indent}${chalk.gray('•')} ${p1}`)
+      // Numbered lists (including indented)
+      .replace(/^(\s*)\d+\. (.+)$/gm, (_, indent, p1) => `${indent}${chalk.gray('◦')} ${p1}`);
+  }
+
+  /**
    * Set output format
    */
   setFormat(format: OutputFormat): void {
@@ -212,6 +244,74 @@ export class Formatter {
    */
   getFormat(): OutputFormat {
     return this.format;
+  }
+}
+
+/**
+ * Process streaming text with markdown formatting.
+ * Buffers text, processes markdown when complete patterns found.
+ */
+export class StreamingMarkdownProcessor {
+  private buffer: string = '';
+
+  process(chunk: string): { text: string; backspace: number } {
+    this.buffer += chunk;
+
+    // Try to find and process complete markdown patterns
+    let processed = this.buffer;
+    let hasMatch = false;
+
+    // Process **bold** patterns
+    processed = processed.replace(/\*\*(.+?)\*\*/g, (_, content) => {
+      hasMatch = true;
+      return chalk.bold(content);
+    });
+
+    // Process `code` patterns
+    processed = processed.replace(/`([^`]+)`/g, (_, content) => {
+      hasMatch = true;
+      return chalk.cyan(content);
+    });
+
+    if (hasMatch) {
+      // Found complete patterns - rewrite the buffer
+      const backspace = this.buffer.length;
+      this.buffer = '';
+      return { text: processed, backspace };
+    }
+
+    // No complete patterns yet
+    // Find where incomplete markdown might start
+    const lastBoldStart = this.buffer.lastIndexOf('**');
+    const lastCodeStart = this.buffer.lastIndexOf('`');
+
+    // Find the earliest incomplete markdown start
+    let markdownStart = -1;
+    if (lastBoldStart !== -1 && lastCodeStart !== -1) {
+      markdownStart = Math.min(lastBoldStart, lastCodeStart);
+    } else if (lastBoldStart !== -1) {
+      markdownStart = lastBoldStart;
+    } else if (lastCodeStart !== -1) {
+      markdownStart = lastCodeStart;
+    }
+
+    if (markdownStart > 0) {
+      // Output text before incomplete markdown, keep the rest
+      const text = this.buffer.slice(0, markdownStart);
+      this.buffer = this.buffer.slice(markdownStart);
+      return { text, backspace: 0 };
+    }
+
+    // No incomplete markdown - output all
+    const text = this.buffer;
+    this.buffer = '';
+    return { text, backspace: 0 };
+  }
+
+  flush(): string {
+    const r = this.buffer;
+    this.buffer = '';
+    return r;
   }
 }
 

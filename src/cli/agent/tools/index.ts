@@ -185,8 +185,8 @@ export function createExecuteSQLTool(ctx: CLIContext): AgentTool {
         const connection = await mysql.createConnection({
           host: ctx.settings.proxysql.host,
           port: ctx.settings.proxysql.mysqlPort,
-          user: ctx.settings.mysql.monitorUser,
-          password: ctx.settings.mysql.monitorPassword,
+          user: ctx.settings.mysql.adminUser,
+          password: ctx.settings.mysql.adminPassword,
         });
 
         const [rows] = await connection.execute(query);

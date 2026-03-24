@@ -15,13 +15,13 @@ const logger = getLogger('mysql-client');
  * Executes commands on MySQL instances for failover operations.
  */
 export class MySQLInstanceClient {
-  private monitorUser: string;
-  private monitorPassword: string;
+  private adminUser: string;
+  private adminPassword: string;
 
   constructor() {
     const settings = getSettings();
-    this.monitorUser = settings.mysql.monitorUser;
-    this.monitorPassword = settings.mysql.monitorPassword;
+    this.adminUser = settings.mysql.adminUser;
+    this.adminPassword = settings.mysql.adminPassword;
   }
 
   /**
@@ -34,8 +34,8 @@ export class MySQLInstanceClient {
       connection = await mysql.createConnection({
         host,
         port,
-        user: this.monitorUser,
-        password: this.monitorPassword,
+        user: this.adminUser,
+        password: this.adminPassword,
         connectTimeout: 5000,
       });
 
@@ -82,8 +82,8 @@ export class MySQLInstanceClient {
       connection = await mysql.createConnection({
         host,
         port,
-        user: this.monitorUser,
-        password: this.monitorPassword,
+        user: this.adminUser,
+        password: this.adminPassword,
         connectTimeout: 5000,
       });
 

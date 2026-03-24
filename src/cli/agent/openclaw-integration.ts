@@ -62,7 +62,12 @@ export async function sendToOpenClaw(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // Use a fixed session ID for ClawSQL interactions
-    const args = ['agent', '--session-id', 'clawsql-session', '--message', message];
+    const args = [
+      'agent',
+      '--session-id', 'clawsql-session',
+      '--message', message,
+      '--thinking', 'minimal'
+    ];
 
     if (options?.gatewayUrl) {
       args.push('--gateway', options.gatewayUrl);
@@ -88,6 +93,64 @@ export async function sendToOpenClaw(
         resolve(stdout.trim());
       } else {
         reject(new Error(`OpenClaw agent failed: ${stderr || stdout}`));
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to run openclaw: ${err.message}`));
+    });
+  });
+}
+
+/**
+ * Send a message to OpenClaw agent with streaming output
+ * Calls onChunk callback for each chunk of output as it arrives
+ *
+ * NOTE: OpenClaw's agent command outputs all at once after processing completes,
+ * not incrementally. The streaming callback will typically receive one large chunk.
+ * This is a limitation of OpenClaw's internal output handling, not Node.js buffering.
+ */
+export async function sendToOpenClawStream(
+  message: string,
+  onChunk: (chunk: string) => void,
+  options?: OpenClawOptions
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // Use a fixed session ID for ClawSQL interactions
+    const args = [
+      'agent',
+      '--session-id', 'clawsql-session',
+      '--message', message,
+      '--thinking', 'minimal'  // Reduce verbose thinking output
+    ];
+
+    if (options?.gatewayUrl) {
+      args.push('--gateway', options.gatewayUrl);
+    }
+
+    const proc = spawn('openclaw', args, {
+      timeout: options?.timeout || 120000,
+    });
+
+    let fullOutput = '';
+    let stderr = '';
+
+    // Stream stdout chunks immediately
+    proc.stdout?.on('data', (data) => {
+      const chunk = data.toString();
+      fullOutput += chunk;
+      onChunk(chunk);
+    });
+
+    proc.stderr?.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve(fullOutput.trim());
+      } else {
+        reject(new Error(`OpenClaw agent failed: ${stderr || fullOutput}`));
       }
     });
 

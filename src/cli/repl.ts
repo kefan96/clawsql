@@ -12,12 +12,12 @@ import * as os from 'os';
 import { parseInput, executeCommand, createCLIContext, CLIContext, getCommand } from './registry.js';
 import { AIAgent, createAIAgent, loadAIConfig } from './agent/index.js';
 import { createCompleter as createCompleterFn } from './completer.js';
+import { StreamingMarkdownProcessor } from './formatter.js';
 import {
   createBanner,
   createPrompt,
   createDidYouMean,
   clearScreen,
-  createSpinner,
   formatWelcomeMessage,
   theme,
 } from './ui/components.js';
@@ -205,7 +205,6 @@ export class REPL {
       this.rl.close();
       this.rl = null;
     }
-    console.log();
     console.log(theme.primary('Goodbye!'));
     process.exit(0);
   }
@@ -266,15 +265,82 @@ export class REPL {
    * Handle natural language input using AI agent
    */
   private async handleNaturalLanguage(input: string): Promise<void> {
-    const spinner = createSpinner('Thinking...').start();
+    const processor = new StreamingMarkdownProcessor();
+    let gotFirstChunk = false;
+    let spinnerInterval: NodeJS.Timeout | null = null;
+
+    // Start thinking spinner
+    const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    const thinkingMessages = [
+      'Thinking...',
+      'Consulting the cluster...',
+      'Querying the depths...',
+      'Processing your request...',
+      'Analyzing topology...',
+      'Connecting the dots...',
+      'Parsing SQL mysteries...',
+      'Asking the replicas nicely...',
+      'Waking up the primary...',
+      'Counting rows in background...',
+      'Optimizing queries in my head...',
+      'Checking for runaway transactions...',
+      'Petitioning the binlogs...',
+      'Synchronizing brain cells...',
+      'Consulting the MySQL oracle...',
+      'Herding the clusters...',
+      'Decoding network packets...',
+      'Channeling database vibes...',
+      'Asking nicely for permission...',
+      'Negotiating with ProxySQL...',
+    ];
+    let frameIndex = 0;
+    let msgIndex = 0;
+
+    spinnerInterval = setInterval(() => {
+      const frame = spinnerFrames[frameIndex % spinnerFrames.length];
+      const msg = thinkingMessages[msgIndex % thinkingMessages.length];
+      // Clear line before writing to handle shorter messages after longer ones
+      process.stdout.write(`\r\x1b[K${frame} ${msg}`);
+      frameIndex++;
+      if (frameIndex % 20 === 0) msgIndex++; // Change message every ~2s
+    }, 100);
+
     try {
-      const response = await this.agent!.process(input);
-      spinner.stop();
-      console.log();
-      console.log(response);
-      console.log();
+      await this.agent!.process(input, (chunk: string) => {
+        // Stop spinner on first chunk
+        if (!gotFirstChunk) {
+          gotFirstChunk = true;
+          if (spinnerInterval) {
+            clearInterval(spinnerInterval);
+            spinnerInterval = null;
+          }
+          // Clear the spinner line
+          process.stdout.write('\r\x1b[K');
+        }
+
+        const { text, backspace } = processor.process(chunk);
+        if (backspace > 0) {
+          process.stdout.write(`\x1b[${backspace}D\x1b[K${text}`);
+        } else if (text) {
+          process.stdout.write(text);
+        }
+      });
+
+      // Make sure spinner is stopped
+      if (spinnerInterval) {
+        clearInterval(spinnerInterval);
+        process.stdout.write('\r\x1b[K');
+      }
+
+      const remaining = processor.flush();
+      if (remaining) process.stdout.write(remaining);
+
+      process.stdout.write('\n\n');
     } catch (error) {
-      spinner.stop();
+      if (spinnerInterval) {
+        clearInterval(spinnerInterval);
+        process.stdout.write('\r\x1b[K');
+      }
       const message = error instanceof Error ? error.message : String(error);
       console.log(this.context.formatter.error(`AI error: ${message}`));
     }

@@ -19,44 +19,74 @@ export const healthCommand: Command = {
     const orchestrator = ctx.orchestrator;
     const proxysql = ctx.proxysql;
 
-    console.log(formatter.header('System Health'));
+    // Collect health data
+    const healthData: {
+      components: Record<string, string>;
+      clusters: Array<{ name: string; status: string; replicas: string }>;
+    } = { components: {}, clusters: [] };
 
     // Check Orchestrator
     let orchestratorHealth: string;
     try {
       const isHealthy = await orchestrator.healthCheck();
-      orchestratorHealth = isHealthy
-        ? chalk.green('healthy')
-        : chalk.red('unhealthy');
+      orchestratorHealth = isHealthy ? 'healthy' : 'unhealthy';
     } catch {
-      orchestratorHealth = chalk.red('unreachable');
+      orchestratorHealth = 'unreachable';
     }
-    console.log(formatter.keyValue('Orchestrator', orchestratorHealth));
+    healthData.components.Orchestrator = orchestratorHealth;
 
     // Check ProxySQL
     let proxysqlHealth: string;
     try {
       await proxysql.connect();
-      proxysqlHealth = chalk.green('healthy');
+      proxysqlHealth = 'healthy';
       await proxysql.close();
     } catch {
-      proxysqlHealth = chalk.red('unreachable');
+      proxysqlHealth = 'unreachable';
     }
-    console.log(formatter.keyValue('ProxySQL', proxysqlHealth));
+    healthData.components.ProxySQL = proxysqlHealth;
 
     // Check Prometheus
     let prometheusHealth: string;
     try {
       const response = await fetch(`${ctx.settings.prometheus.url}/-/healthy`);
-      prometheusHealth = response.ok
-        ? chalk.green('healthy')
-        : chalk.red('unhealthy');
+      prometheusHealth = response.ok ? 'healthy' : 'unhealthy';
     } catch {
-      prometheusHealth = chalk.red('unreachable');
+      prometheusHealth = 'unreachable';
     }
-    console.log(formatter.keyValue('Prometheus', prometheusHealth));
+    healthData.components.Prometheus = prometheusHealth;
+    healthData.components['ClawSQL API'] = 'healthy';
 
-    // API health (always healthy if we're running)
+    // Output JSON if requested
+    if (ctx.outputFormat === 'json') {
+      // Get cluster health for JSON output
+      try {
+        const clusters = await orchestrator.getClusters();
+        for (const clusterName of clusters) {
+          const cluster = await orchestrator.getTopology(clusterName);
+          if (cluster) {
+            const primaryOk = cluster.primary?.state === 'online';
+            const replicaCount = cluster.replicas.length;
+            const healthyReplicas = cluster.replicas.filter(r => r.state === 'online').length;
+            healthData.clusters.push({
+              name: clusterName,
+              status: primaryOk && healthyReplicas === replicaCount ? 'ok' : 'degraded',
+              replicas: `${healthyReplicas}/${replicaCount}`,
+            });
+          }
+        }
+      } catch {
+        // Ignore errors getting cluster health
+      }
+      console.log(JSON.stringify(healthData, null, 2));
+      return;
+    }
+
+    // Table output
+    console.log(formatter.header('System Health'));
+    console.log(formatter.keyValue('Orchestrator', colorStatus(orchestratorHealth)));
+    console.log(formatter.keyValue('ProxySQL', colorStatus(proxysqlHealth)));
+    console.log(formatter.keyValue('Prometheus', colorStatus(prometheusHealth)));
     console.log(formatter.keyValue('ClawSQL API', chalk.green('healthy')));
 
     // Try to get cluster health
@@ -86,5 +116,14 @@ export const healthCommand: Command = {
     console.log();
   },
 };
+
+/**
+ * Colorize status string
+ */
+function colorStatus(status: string): string {
+  if (status === 'healthy') return chalk.green(status);
+  if (status === 'unreachable' || status === 'unhealthy') return chalk.red(status);
+  return chalk.yellow(status);
+}
 
 export default healthCommand;

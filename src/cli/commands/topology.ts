@@ -25,11 +25,49 @@ export const topologyCommand: Command = {
         const clusters = await orchestrator.getClusters();
 
         if (clusters.length === 0) {
-          console.log(formatter.warning('No clusters discovered.'));
-          console.log(formatter.info('Register instances with /instances register <host>'));
+          if (ctx.outputFormat === 'json') {
+            console.log(JSON.stringify({ clusters: [] }, null, 2));
+          } else {
+            console.log(formatter.warning('No clusters discovered.'));
+            console.log(formatter.info('Register instances with /instances register <host>'));
+          }
           return;
         }
 
+        // JSON output
+        if (ctx.outputFormat === 'json') {
+          const topologyData: Array<{
+            cluster: string;
+            primary: { host: string; port: number; state: string; version?: string; serverId?: number } | null;
+            replicas: Array<{ host: string; port: number; state: string; lag: number | null }>;
+          }> = [];
+
+          for (const clusterName of clusters) {
+            const cluster = await orchestrator.getTopology(clusterName);
+            if (cluster) {
+              topologyData.push({
+                cluster: cluster.name,
+                primary: cluster.primary ? {
+                  host: cluster.primary.host,
+                  port: cluster.primary.port,
+                  state: cluster.primary.state ?? 'unknown',
+                  version: cluster.primary.version,
+                  serverId: cluster.primary.serverId,
+                } : null,
+                replicas: cluster.replicas.map(r => ({
+                  host: r.host,
+                  port: r.port,
+                  state: r.state ?? 'unknown',
+                  lag: r.replicationLag ?? null,
+                })),
+              });
+            }
+          }
+          console.log(JSON.stringify({ clusters: topologyData }, null, 2));
+          return;
+        }
+
+        // Table output
         console.log(formatter.header('Cluster Topology'));
 
         for (const clusterName of clusters) {
@@ -38,8 +76,12 @@ export const topologyCommand: Command = {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.log(formatter.error(`Failed to get topology: ${message}`));
-      console.log(formatter.info('Make sure Orchestrator is running and instances are discovered.'));
+      if (ctx.outputFormat === 'json') {
+        console.log(JSON.stringify({ error: message }, null, 2));
+      } else {
+        console.log(formatter.error(`Failed to get topology: ${message}`));
+        console.log(formatter.info('Make sure Orchestrator is running and instances are discovered.'));
+      }
     }
   },
 };
@@ -55,10 +97,36 @@ async function showClusterTopology(clusterName: string, ctx: CLIContext): Promis
     const cluster = await orchestrator.getTopology(clusterName);
 
     if (!cluster) {
-      console.log(formatter.warning(`Cluster '${clusterName}' not found.`));
+      if (ctx.outputFormat === 'json') {
+        console.log(JSON.stringify({ error: `Cluster '${clusterName}' not found` }, null, 2));
+      } else {
+        console.log(formatter.warning(`Cluster '${clusterName}' not found.`));
+      }
       return;
     }
 
+    // JSON output
+    if (ctx.outputFormat === 'json') {
+      console.log(JSON.stringify({
+        cluster: cluster.name,
+        primary: cluster.primary ? {
+          host: cluster.primary.host,
+          port: cluster.primary.port,
+          state: cluster.primary.state ?? 'unknown',
+          version: cluster.primary.version,
+          serverId: cluster.primary.serverId,
+        } : null,
+        replicas: cluster.replicas.map(r => ({
+          host: r.host,
+          port: r.port,
+          state: r.state ?? 'unknown',
+          lag: r.replicationLag ?? null,
+        })),
+      }, null, 2));
+      return;
+    }
+
+    // Table output
     console.log('\n' + formatter.section(`Cluster: ${cluster.name}`));
 
     // Show primary
@@ -91,7 +159,11 @@ async function showClusterTopology(clusterName: string, ctx: CLIContext): Promis
 
     console.log();
   } catch (error) {
-    console.log(formatter.error(`Error getting topology for ${clusterName}`));
+    if (ctx.outputFormat === 'json') {
+      console.log(JSON.stringify({ error: `Failed to get topology for ${clusterName}` }, null, 2));
+    } else {
+      console.log(formatter.error(`Error getting topology for ${clusterName}`));
+    }
   }
 }
 

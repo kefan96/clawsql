@@ -18,6 +18,60 @@ export const configCommand: Command = {
     const formatter = ctx.formatter;
     const settings = ctx.settings;
 
+    // Build config object
+    const config = {
+      application: {
+        name: settings.appName,
+        version: settings.appVersion,
+        debug: settings.debug,
+      },
+      api: {
+        listen: `${settings.api.host}:${settings.api.port}`,
+      },
+      metadataDb: {
+        host: settings.metadataDb.host || 'metadata-mysql (auto)',
+        database: settings.metadataDb.name,
+      },
+      orchestrator: {
+        url: settings.orchestrator.url,
+        timeout: `${settings.orchestrator.timeout}s`,
+      },
+      proxysql: {
+        admin: `${settings.proxysql.host}:${settings.proxysql.adminPort}`,
+        mysql: `${settings.proxysql.host}:${settings.proxysql.mysqlPort}`,
+      },
+      prometheus: {
+        url: settings.prometheus.url,
+      },
+      failover: {
+        auto: settings.failover.autoFailoverEnabled,
+        timeout: `${settings.failover.timeoutSeconds}s`,
+        minReplicas: settings.failover.minReplicasForFailover,
+        checks: settings.failover.confirmationChecks,
+      },
+      monitoring: {
+        collect: `${settings.monitoring.collectionInterval}s`,
+        healthCheck: `${settings.monitoring.healthCheckInterval}s`,
+      },
+      logging: {
+        level: settings.logging.level,
+        format: settings.logging.format,
+      },
+      ai: {
+        enabled: settings.ai.enabled,
+        provider: settings.ai.provider,
+        maxTokens: settings.ai.maxTokens,
+        temperature: settings.ai.temperature,
+      },
+    };
+
+    // JSON output
+    if (ctx.outputFormat === 'json') {
+      console.log(JSON.stringify(config, null, 2));
+      return;
+    }
+
+    // Table output
     console.log(formatter.header('Configuration'));
 
     // App info

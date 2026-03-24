@@ -17,6 +17,25 @@ export interface CompletionResult {
 }
 
 /**
+ * Built-in commands that are handled directly by the REPL
+ * These are not registered in the command registry
+ */
+const BUILTIN_COMMANDS = [
+  { name: 'exit', description: 'Exit the CLI' },
+  { name: 'quit', description: 'Exit the CLI (alias for exit)' },
+  { name: 'q', description: 'Exit the CLI (short alias)' },
+  { name: 'clear', description: 'Clear the screen' },
+  { name: 'cls', description: 'Clear the screen (alias)' },
+];
+
+/**
+ * Get all commands (registered + built-in) for completion
+ */
+function getAllCommands(): Array<{ name: string; description: string }> {
+  return [...listCommands(), ...BUILTIN_COMMANDS];
+}
+
+/**
  * Subcommand definition for autocomplete
  */
 interface SubcommandInfo {
@@ -72,8 +91,8 @@ export function createCompleter() {
 
     // Empty line - show all commands
     if (!trimmed) {
-      const commands = listCommands();
-      return [commands.map(c => `/${c.name}`), ''];
+      const allCommands = getAllCommands();
+      return [allCommands.map(c => `/${c.name}`), ''];
     }
 
     // Not a command (doesn't start with /)
@@ -112,20 +131,18 @@ export function createCompleter() {
    * Complete a command name
    */
   function completeCommand(partial: string): string[] {
-    const commands = listCommands();
     const lower = partial.toLowerCase();
+    const allCommands = getAllCommands();
 
     // Exact match
-    if (commands.some(c => c.name === lower)) {
+    if (allCommands.some(c => c.name === lower)) {
       return [lower];
     }
 
     // Prefix matches
-    const matches = commands
+    return allCommands
       .filter(c => c.name.startsWith(lower))
       .map(c => c.name);
-
-    return matches;
   }
 
   /**
@@ -171,8 +188,8 @@ export function createCompleter() {
 
     // Command name completion
     if (parts.length === 1) {
-      const commands = listCommands();
-      const matches = commands.filter(c => c.name.startsWith(commandName));
+      const allCommands = getAllCommands();
+      const matches = allCommands.filter(c => c.name.startsWith(commandName));
 
       if (matches.length === 0) {
         return { completions: [] };
@@ -235,11 +252,11 @@ export function createCompleter() {
    * Find similar commands for "did you mean?" suggestions
    */
   function findSimilar(input: string): string[] {
-    const commands = listCommands();
+    const allCommands = getAllCommands();
     const inputLower = input.toLowerCase();
 
     // Calculate Levenshtein distance for fuzzy matching
-    const withDistance = commands.map(c => ({
+    const withDistance = allCommands.map(c => ({
       name: c.name,
       distance: levenshteinDistance(inputLower, c.name.toLowerCase()),
     }));

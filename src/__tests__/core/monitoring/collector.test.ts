@@ -14,8 +14,8 @@ const mockedMysql = mysql as jest.Mocked<typeof mysql>;
 jest.mock('../../../config/settings.js', () => ({
   getSettings: () => ({
     mysql: {
-      monitorUser: 'monitor',
-      monitorPassword: 'password',
+      adminUser: 'clawsql',
+      adminPassword: 'password',
     },
     logging: {
       level: 'INFO',

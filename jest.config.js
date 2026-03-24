@@ -20,6 +20,7 @@ module.exports = {
   },
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    '^chalk$': require.resolve('chalk'),
   },
   transformIgnorePatterns: [],
   transform: {
