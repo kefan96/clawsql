@@ -82,8 +82,16 @@ const MySQLCredentialsSchema = z.object({
 });
 
 const LogSettingsSchema = z.object({
-  level: z.enum(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']).default('INFO'),
+  level: z.enum(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'SILENT']).default('ERROR'),
   format: z.enum(['json', 'text']).default('json'),
+});
+
+const AISettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  provider: z.enum(['anthropic', 'openai', 'openclaw']).default('openclaw'),
+  model: z.string().optional(),
+  maxTokens: z.number().int().min(100).max(32000).default(4096),
+  temperature: z.number().min(0).max(2).default(0.7),
 });
 
 const SettingsSchema = z.object({
@@ -100,6 +108,7 @@ const SettingsSchema = z.object({
   api: APISettingsSchema,
   mysql: MySQLCredentialsSchema,
   logging: LogSettingsSchema,
+  ai: AISettingsSchema,
 });
 
 // =============================================================================
@@ -116,6 +125,7 @@ export type DiscoverySettings = z.infer<typeof DiscoverySettingsSchema>;
 export type APISettings = z.infer<typeof APISettingsSchema>;
 export type MySQLCredentials = z.infer<typeof MySQLCredentialsSchema>;
 export type LogSettings = z.infer<typeof LogSettingsSchema>;
+export type AISettings = z.infer<typeof AISettingsSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 
 // =============================================================================
@@ -220,8 +230,16 @@ function loadSettings(): Settings {
     },
 
     logging: {
-      level: getEnvString('LOG_LEVEL') as 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL' | undefined,
+      level: getEnvString('LOG_LEVEL') as 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'SILENT' | undefined,
       format: getEnvString('LOG_FORMAT') as 'json' | 'text' | undefined,
+    },
+
+    ai: {
+      enabled: getEnvBool('CLAWSQL_AI_ENABLED'),
+      provider: getEnvString('CLAWSQL_AI_PROVIDER') as 'anthropic' | 'openai' | undefined,
+      model: getEnvString('CLAWSQL_AI_MODEL'),
+      maxTokens: getEnvInt('CLAWSQL_AI_MAX_TOKENS'),
+      temperature: getEnvNumber('CLAWSQL_AI_TEMPERATURE'),
     },
   };
 

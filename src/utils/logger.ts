@@ -10,6 +10,16 @@ import { getSettings } from '../config/settings.js';
 let logger: pino.Logger | null = null;
 
 /**
+ * Check if we're running in CLI mode
+ */
+function isCLIMode(): boolean {
+  // CLI mode is when running the clawsql command directly
+  return process.argv[1]?.endsWith('clawsql') ||
+    process.argv[1]?.includes('clawsql.ts') ||
+    process.env.CLAWSQL_CLI_MODE === 'true';
+}
+
+/**
  * Setup and get the logger instance
  */
 export function setupLogger(): pino.Logger {
@@ -18,8 +28,24 @@ export function setupLogger(): pino.Logger {
   const settings = getSettings();
   const isDev = process.env.NODE_ENV !== 'production';
 
+  // Map our levels to pino levels
+  const levelMap: Record<string, string> = {
+    'DEBUG': 'debug',
+    'INFO': 'info',
+    'WARNING': 'warn',
+    'ERROR': 'error',
+    'CRITICAL': 'fatal',
+    'SILENT': 'silent',
+  };
+
+  // In CLI mode, suppress most logs unless DEBUG is set
+  let logLevel = levelMap[settings.logging.level.toUpperCase()] || 'error';
+  if (isCLIMode() && !process.env.DEBUG) {
+    logLevel = 'silent'; // Suppress all logs in CLI mode
+  }
+
   logger = pino({
-    level: settings.logging.level.toLowerCase(),
+    level: logLevel,
     transport: isDev || settings.logging.format === 'text'
       ? {
           target: 'pino-pretty',

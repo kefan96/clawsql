@@ -164,7 +164,7 @@ describe('Settings', () => {
     it('should have correct defaults', () => {
       const settings = getSettings();
 
-      expect(settings.logging.level).toBe('INFO');
+      expect(settings.logging.level).toBe('ERROR');
       expect(settings.logging.format).toBe('json');
     });
   });

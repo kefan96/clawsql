@@ -218,13 +218,29 @@ describe('OrchestratorClient', () => {
     });
   });
 
-  describe('requestFailover', () => {
-    it('should request failover without destination', async () => {
-      mockAxiosInstance.post.mockResolvedValue({ data: { success: true } });
+  describe('gracefulMasterTakeover', () => {
+    it('should perform graceful master takeover', async () => {
+      mockAxiosInstance.get.mockResolvedValue({ data: { Code: 'OK' } });
 
-      const result = await client.requestFailover('mysql-replica-1', 3306);
+      const result = await client.gracefulMasterTakeover('test-cluster', 'mysql-replica-1', 3306);
 
-      expect(result).toEqual({ success: true });
+      expect(result).toEqual({ Code: 'OK' });
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        '/api/graceful-master-takeover/test-cluster/mysql-replica-1/3306'
+      );
+    });
+  });
+
+  describe('forceMasterFailover', () => {
+    it('should force master failover', async () => {
+      mockAxiosInstance.get.mockResolvedValue({ data: { Code: 'OK' } });
+
+      const result = await client.forceMasterFailover('test-cluster');
+
+      expect(result).toEqual({ Code: 'OK' });
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        '/api/force-master-failover/test-cluster'
+      );
     });
   });
 });

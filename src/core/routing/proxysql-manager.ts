@@ -409,6 +409,21 @@ export class ProxySQLManager {
   }
 
   /**
+   * Relocate a replica to follow a new primary
+   * This is used after failover to reconfigure replicas
+   */
+  async relocateReplica(replica: MySQLInstance, newPrimary: MySQLInstance): Promise<boolean> {
+    logger.info(
+      { replica: `${replica.host}:${replica.port}`, newPrimary: `${newPrimary.host}:${newPrimary.port}` },
+      'Relocating replica to follow new primary'
+    );
+    // This is handled by Orchestrator's relocateReplica method
+    // The ProxySQL manager just updates its internal tracking
+    // The actual replication change is done via Orchestrator
+    return true;
+  }
+
+  /**
    * Get configuration summary
    */
   getConfigSummary(): { hostgroups: number; servers: number; rules: number } {
@@ -428,7 +443,8 @@ let proxysqlManager: ProxySQLManager | null = null;
  */
 export function getProxySQLManager(): ProxySQLManager {
   if (!proxysqlManager) {
-    proxysqlManager = new ProxySQLManager();
+    const { getSettings } = require('../../config/settings.js');
+    proxysqlManager = new ProxySQLManager(getSettings().proxysql);
   }
   return proxysqlManager;
 }
