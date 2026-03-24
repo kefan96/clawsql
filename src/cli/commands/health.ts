@@ -26,10 +26,10 @@ export const healthCommand: Command = {
     try {
       const isHealthy = await orchestrator.healthCheck();
       orchestratorHealth = isHealthy
-        ? chalk.green('● healthy')
-        : chalk.red('● unhealthy');
+        ? chalk.green('healthy')
+        : chalk.red('unhealthy');
     } catch {
-      orchestratorHealth = chalk.red('● unreachable');
+      orchestratorHealth = chalk.red('unreachable');
     }
     console.log(formatter.keyValue('Orchestrator', orchestratorHealth));
 
@@ -37,10 +37,10 @@ export const healthCommand: Command = {
     let proxysqlHealth: string;
     try {
       await proxysql.connect();
-      proxysqlHealth = chalk.green('● healthy');
+      proxysqlHealth = chalk.green('healthy');
       await proxysql.close();
     } catch {
-      proxysqlHealth = chalk.red('● unreachable');
+      proxysqlHealth = chalk.red('unreachable');
     }
     console.log(formatter.keyValue('ProxySQL', proxysqlHealth));
 
@@ -49,41 +49,41 @@ export const healthCommand: Command = {
     try {
       const response = await fetch(`${ctx.settings.prometheus.url}/-/healthy`);
       prometheusHealth = response.ok
-        ? chalk.green('● healthy')
-        : chalk.red('● unhealthy');
+        ? chalk.green('healthy')
+        : chalk.red('unhealthy');
     } catch {
-      prometheusHealth = chalk.red('● unreachable');
+      prometheusHealth = chalk.red('unreachable');
     }
     console.log(formatter.keyValue('Prometheus', prometheusHealth));
 
     // API health (always healthy if we're running)
-    console.log(formatter.keyValue('ClawSQL API', chalk.green('● healthy')));
-
-    console.log();
+    console.log(formatter.keyValue('ClawSQL API', chalk.green('healthy')));
 
     // Try to get cluster health
     try {
       const clusters = await orchestrator.getClusters();
       if (clusters.length > 0) {
-        console.log(chalk.bold('Cluster Health:'));
+        console.log('\n' + formatter.section('Cluster Health'));
 
         for (const clusterName of clusters) {
           const cluster = await orchestrator.getTopology(clusterName);
           if (cluster) {
-            const primaryHealth = cluster.primary?.state === 'online'
-              ? chalk.green('●')
-              : chalk.red('○');
+            const primaryOk = cluster.primary?.state === 'online';
             const replicaCount = cluster.replicas.length;
             const healthyReplicas = cluster.replicas.filter(r => r.state === 'online').length;
+            const status = primaryOk && healthyReplicas === replicaCount
+              ? chalk.green('ok')
+              : chalk.yellow('degraded');
 
-            console.log(`  ${primaryHealth} ${clusterName}: ${healthyReplicas}/${replicaCount} replicas healthy`);
+            console.log(`  ${clusterName}: ${status} (${healthyReplicas}/${replicaCount} replicas)`);
           }
         }
-        console.log();
       }
     } catch {
       // Ignore errors getting cluster health
     }
+
+    console.log();
   },
 };
 

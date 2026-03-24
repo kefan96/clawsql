@@ -9,37 +9,44 @@ import chalk from 'chalk';
 import ora, { Ora } from 'ora';
 
 /**
- * UI Theme colors
+ * UI Theme colors - VSCode-inspired palette
  */
 export const theme = {
-  primary: chalk.cyan,
-  secondary: chalk.gray,
-  success: chalk.green,
-  warning: chalk.yellow,
-  error: chalk.red,
-  info: chalk.blue,
-  muted: chalk.dim,
-  highlight: chalk.bold.white,
-  accent: chalk.magenta,
+  primary: chalk.hex('#007ACC'),      // VSCode blue
+  secondary: chalk.hex('#3794FF'),    // Light blue
+  success: chalk.hex('#89D185'),      // VSCode green
+  warning: chalk.hex('#DCDCAA'),      // VSCode yellow
+  error: chalk.hex('#F14C4C'),        // VSCode red
+  info: chalk.hex('#569CD6'),         // VSCode keyword blue
+  muted: chalk.hex('#808080'),        // VSCode comment gray
+  highlight: chalk.hex('#4FC1FF'),    // Bright blue
+  accent: chalk.hex('#4EC9B0'),       // VSCode teal
 };
 
 /**
- * Status indicators
+ * Status indicators - Minimal unicode symbols
  */
 export const indicators = {
-  success: '✓',
-  error: '✗',
-  warning: '⚠',
-  info: 'ℹ',
-  arrow: '→',
-  bullet: '●',
-  circle: '○',
-  prompt: '❯',
-  promptAlt: '›',
+  success: '\u2022',    // bullet
+  error: '\u25E6',      // white bullet
+  warning: '\u25C6',    // diamond
+  info: '\u25CB',       // circle
+  arrow: '\u2192',      // arrow
+  bullet: '\u2022',     // bullet
+  circle: '\u25CB',     // circle
+  prompt: '\u276F',     // heavy right angle bracket
 };
 
 /**
- * Create a professional banner
+ * Strip ANSI escape codes and get visible string length
+ */
+function visibleLength(str: string): number {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1B\[[0-9;]*m/g, '').length;
+}
+
+/**
+ * Create a professional banner with VSCode-inspired styling
  */
 export function createBanner(options: {
   version: string;
@@ -47,10 +54,10 @@ export function createBanner(options: {
   orchestratorStatus?: 'connected' | 'disconnected' | 'unknown';
 }): string {
   const lines: string[] = [];
-  const width = 60;
+  const width = 52;
 
   // Top border
-  lines.push(theme.primary('╭' + '─'.repeat(width - 2) + '╮'));
+  lines.push(theme.primary('┌' + '─'.repeat(width - 2) + '┐'));
 
   // Title line
   const title = `ClawSQL v${options.version}`;
@@ -58,7 +65,7 @@ export function createBanner(options: {
   lines.push(
     theme.primary('│') +
     ' '.repeat(titlePadding) +
-    theme.highlight(title) +
+    theme.highlight.bold(title) +
     ' '.repeat(width - title.length - titlePadding - 2) +
     theme.primary('│')
   );
@@ -78,41 +85,42 @@ export function createBanner(options: {
   const statusParts: string[] = [];
 
   if (options.aiStatus) {
-    const aiText = options.aiStatus.enabled
-      ? `${indicators.success} AI: ${options.aiStatus.provider || 'enabled'}`
-      : `${indicators.circle} AI: disabled`;
-    statusParts.push(options.aiStatus.enabled ? theme.success(aiText) : theme.muted(aiText));
+    const icon = options.aiStatus.enabled ? indicators.success : indicators.circle;
+    const label = `${icon} AI: ${options.aiStatus.provider || (options.aiStatus.enabled ? 'on' : 'off')}`;
+    statusParts.push(options.aiStatus.enabled ? theme.accent(label) : theme.muted(label));
   }
 
   if (options.orchestratorStatus) {
-    const orchText = options.orchestratorStatus === 'connected'
-      ? `${indicators.success} Orchestrator`
+    const icon = options.orchestratorStatus === 'connected'
+      ? indicators.success
       : options.orchestratorStatus === 'disconnected'
-        ? `${indicators.error} Orchestrator`
-        : `${indicators.circle} Orchestrator`;
+        ? indicators.error
+        : indicators.circle;
+    const label = `${icon} Orchestrator`;
     statusParts.push(
       options.orchestratorStatus === 'connected'
-        ? theme.success(orchText)
+        ? theme.success(label)
         : options.orchestratorStatus === 'disconnected'
-          ? theme.error(orchText)
-          : theme.muted(orchText)
+          ? theme.error(label)
+          : theme.muted(label)
     );
   }
 
   if (statusParts.length > 0) {
     const statusText = statusParts.join('  ');
-    const statusPadding = Math.floor((width - statusText.length - 4) / 2);
+    const visibleLen = visibleLength(statusText);
+    const statusPadding = Math.floor((width - visibleLen - 2) / 2);
     lines.push(
       theme.primary('│') +
       ' '.repeat(Math.max(1, statusPadding)) +
       statusText +
-      ' '.repeat(Math.max(1, width - statusText.length - statusPadding - 3)) +
+      ' '.repeat(Math.max(1, width - visibleLen - statusPadding - 2)) +
       theme.primary('│')
     );
   }
 
   // Bottom border
-  lines.push(theme.primary('╰' + '─'.repeat(width - 2) + '╯'));
+  lines.push(theme.primary('└' + '─'.repeat(width - 2) + '┘'));
 
   return lines.join('\n');
 }
@@ -126,22 +134,18 @@ export function createPrompt(options: {
 }): string {
   const { context, status = 'normal' } = options;
 
-  // Status color
   const statusColor = status === 'error'
     ? theme.error
     : status === 'warning'
       ? theme.warning
       : theme.primary;
 
-  // Build prompt
   let prompt = statusColor('clawsql');
 
-  // Add context if provided (e.g., current cluster)
   if (context) {
     prompt += theme.muted(` (${context})`);
   }
 
-  // Add prompt indicator
   prompt += ' ' + statusColor(indicators.prompt) + ' ';
 
   return prompt;
@@ -154,11 +158,8 @@ export function createSuggestionBox(suggestions: string[], hint?: string): strin
   if (suggestions.length === 0) return '';
 
   const lines: string[] = [];
-
-  // Suggestions header
   lines.push(theme.muted('  Suggestions:'));
 
-  // List suggestions
   for (const suggestion of suggestions.slice(0, 5)) {
     lines.push(theme.info(`    ${indicators.arrow} ${suggestion}`));
   }
@@ -167,9 +168,7 @@ export function createSuggestionBox(suggestions: string[], hint?: string): strin
     lines.push(theme.muted(`    ... and ${suggestions.length - 5} more`));
   }
 
-  // Add hint if provided
   if (hint) {
-    lines.push('');
     lines.push(theme.secondary('  ' + hint));
   }
 
@@ -182,16 +181,13 @@ export function createSuggestionBox(suggestions: string[], hint?: string): strin
 export function createDidYouMean(typed: string, suggestions: string[]): string {
   if (suggestions.length === 0) return '';
 
-  const lines: string[] = [];
-  lines.push(theme.error(`Unknown command: ${typed}`));
-
   if (suggestions.length === 1) {
-    lines.push(theme.info(`Did you mean: /${suggestions[0]}?`));
-  } else {
-    lines.push(theme.info('Did you mean one of these?'));
-    for (const suggestion of suggestions) {
-      lines.push(theme.muted(`  /${suggestion}`));
-    }
+    return theme.error(`Unknown: ${typed}`) + ' ' + theme.info(`Did you mean: /${suggestions[0]}?`);
+  }
+
+  const lines: string[] = [theme.error(`Unknown: ${typed}`), theme.info('Did you mean one of these?')];
+  for (const suggestion of suggestions) {
+    lines.push(theme.muted(`  /${suggestion}`));
   }
 
   return lines.join('\n');
@@ -230,13 +226,11 @@ export function createKeybindingsHelp(): string {
   const lines: string[] = [
     theme.muted('─'.repeat(40)),
     theme.secondary('  Keyboard Shortcuts:'),
-    '',
     theme.muted('  Tab       ') + 'Auto-complete',
     theme.muted('  Ctrl+L    ') + 'Clear screen',
     theme.muted('  Ctrl+C    ') + 'Cancel input',
     theme.muted('  Ctrl+D    ') + 'Exit',
-    theme.muted('  ↑/↓       ') + 'History navigation',
-    theme.muted('  ?         ') + 'Show command hints',
+    theme.muted('  Up/Down   ') + 'History navigation',
     theme.muted('─'.repeat(40)),
   ];
 
@@ -282,10 +276,5 @@ export function divider(char: string = '─', width: number = 60): string {
  * Format a welcome message
  */
 export function formatWelcomeMessage(): string {
-  const lines: string[] = [];
-  lines.push('');
-  lines.push(theme.muted('Type /help to see available commands.'));
-  lines.push(theme.muted('Type /exit or press Ctrl+D to exit.'));
-  lines.push('');
-  return lines.join('\n');
+  return theme.muted('Type /help for commands, /exit to quit.');
 }

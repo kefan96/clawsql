@@ -18,68 +18,62 @@ export const configCommand: Command = {
     const formatter = ctx.formatter;
     const settings = ctx.settings;
 
-    console.log(formatter.header('ClawSQL Configuration'));
+    console.log(formatter.header('Configuration'));
 
     // App info
-    console.log(chalk.bold('\n📦 Application'));
+    console.log('\n' + formatter.section('Application'));
     console.log(formatter.keyValue('Name', settings.appName));
     console.log(formatter.keyValue('Version', settings.appVersion));
-    console.log(formatter.keyValue('Debug Mode', settings.debug ? chalk.yellow('Enabled') : 'Disabled'));
+    console.log(formatter.keyValue('Debug', settings.debug ? chalk.yellow('on') : 'off'));
 
     // API settings
-    console.log(chalk.bold('\n🌐 API'));
-    console.log(formatter.keyValue('Host', settings.api.host));
-    console.log(formatter.keyValue('Port', settings.api.port));
+    console.log('\n' + formatter.section('API'));
+    console.log(formatter.keyValue('Listen', `${settings.api.host}:${settings.api.port}`));
 
     // Database settings
-    console.log(chalk.bold('\n💾 Metadata Database'));
+    console.log('\n' + formatter.section('Metadata Database'));
     console.log(formatter.keyValue('Host', settings.metadataDb.host || 'metadata-mysql (auto)'));
-    console.log(formatter.keyValue('Port', settings.metadataDb.port.toString()));
     console.log(formatter.keyValue('Database', settings.metadataDb.name));
 
     // Orchestrator settings
-    console.log(chalk.bold('\n🔗 Orchestrator'));
+    console.log('\n' + formatter.section('Orchestrator'));
     console.log(formatter.keyValue('URL', settings.orchestrator.url));
     console.log(formatter.keyValue('Timeout', `${settings.orchestrator.timeout}s`));
 
     // ProxySQL settings
-    console.log(chalk.bold('\n🔀 ProxySQL'));
-    console.log(formatter.keyValue('Host', settings.proxysql.host));
-    console.log(formatter.keyValue('Admin Port', settings.proxysql.adminPort));
-    console.log(formatter.keyValue('MySQL Port', settings.proxysql.mysqlPort));
+    console.log('\n' + formatter.section('ProxySQL'));
+    console.log(formatter.keyValue('Admin', `${settings.proxysql.host}:${settings.proxysql.adminPort}`));
+    console.log(formatter.keyValue('MySQL', `${settings.proxysql.host}:${settings.proxysql.mysqlPort}`));
 
     // Prometheus settings
-    console.log(chalk.bold('\n📊 Prometheus'));
+    console.log('\n' + formatter.section('Prometheus'));
     console.log(formatter.keyValue('URL', settings.prometheus.url));
 
     // Failover settings
-    console.log(chalk.bold('\n⚡ Failover'));
+    console.log('\n' + formatter.section('Failover'));
     const autoFailover = settings.failover.autoFailoverEnabled;
-    console.log(formatter.keyValue('Auto Failover', autoFailover ? chalk.green('Enabled') : chalk.red('Disabled')));
+    console.log(formatter.keyValue('Auto', autoFailover ? chalk.green('on') : chalk.red('off')));
     console.log(formatter.keyValue('Timeout', `${settings.failover.timeoutSeconds}s`));
     console.log(formatter.keyValue('Min Replicas', settings.failover.minReplicasForFailover));
-    console.log(formatter.keyValue('Confirmation Checks', settings.failover.confirmationChecks));
+    console.log(formatter.keyValue('Checks', settings.failover.confirmationChecks));
 
     // Monitoring settings
-    console.log(chalk.bold('\n📈 Monitoring'));
-    console.log(formatter.keyValue('Collection Interval', `${settings.monitoring.collectionInterval}s`));
-    console.log(formatter.keyValue('Health Check Interval', `${settings.monitoring.healthCheckInterval}s`));
+    console.log('\n' + formatter.section('Monitoring'));
+    console.log(formatter.keyValue('Collect', `${settings.monitoring.collectionInterval}s`));
+    console.log(formatter.keyValue('Health Check', `${settings.monitoring.healthCheckInterval}s`));
 
     // Logging settings
-    console.log(chalk.bold('\n📝 Logging'));
+    console.log('\n' + formatter.section('Logging'));
     console.log(formatter.keyValue('Level', settings.logging.level));
     console.log(formatter.keyValue('Format', settings.logging.format));
 
     // AI settings
-    console.log(chalk.bold('\n🤖 AI Agent'));
+    console.log('\n' + formatter.section('AI Agent'));
     const aiEnabled = settings.ai.enabled;
-    console.log(formatter.keyValue('Enabled', aiEnabled ? chalk.green('Yes') : chalk.red('No')));
+    console.log(formatter.keyValue('Enabled', aiEnabled ? chalk.green('yes') : 'no'));
     console.log(formatter.keyValue('Provider', settings.ai.provider));
-    if (settings.ai.model) {
-      console.log(formatter.keyValue('Model', settings.ai.model));
-    }
-    console.log(formatter.keyValue('Max Tokens', settings.ai.maxTokens.toString()));
-    console.log(formatter.keyValue('Temperature', settings.ai.temperature.toString()));
+    console.log(formatter.keyValue('Max Tokens', settings.ai.maxTokens));
+    console.log(formatter.keyValue('Temperature', settings.ai.temperature));
 
     console.log();
   },

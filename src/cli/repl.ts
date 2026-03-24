@@ -158,12 +158,17 @@ export class REPL {
         });
     });
 
-    // Handle close - just save history, don't exit
-    // Let the process exit naturally when all async operations complete
+    // Handle close (Ctrl+D)
     this.rl.on('close', () => {
       this.saveHistory();
-      // Don't call process.exit - let async operations complete naturally
-      // The keepAlive interval will keep the process alive
+      this.running = false;
+      if (this.keepAlive) {
+        clearInterval(this.keepAlive);
+        this.keepAlive = null;
+      }
+      console.log();
+      console.log(theme.primary('Goodbye!'));
+      process.exit(0);
     });
   }
 
@@ -201,7 +206,7 @@ export class REPL {
       this.rl = null;
     }
     console.log();
-    console.log(theme.primary('👋 Goodbye!'));
+    console.log(theme.primary('Goodbye!'));
     process.exit(0);
   }
 

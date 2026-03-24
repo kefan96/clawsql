@@ -126,21 +126,30 @@ export class Formatter {
     if (this.format === 'json') {
       return title;
     }
-    const line = '─'.repeat(title.length + 4);
+    const line = '─'.repeat(Math.max(title.length + 4, 24));
     return this.colors
-      ? `\n${chalk.bold.blue(line)}\n  ${chalk.bold(title)}\n${chalk.bold.blue(line)}\n`
-      : `\n${line}\n  ${title}\n${line}\n`;
+      ? `${chalk.bold.blue(line)}\n  ${chalk.bold(title)}\n${chalk.bold.blue(line)}`
+      : `${line}\n  ${title}\n${line}`;
   }
 
   /**
-   * Format a key-value pair
+   * Format a section header (compact)
+   */
+  section(title: string): string {
+    return this.colors
+      ? chalk.bold.cyan(`[${title}]`)
+      : `[${title}]`;
+  }
+
+  /**
+   * Format a key-value pair (compact)
    */
   keyValue(key: string, value: unknown): string {
     const displayValue = value === null || value === undefined
       ? (this.colors ? chalk.gray('(not set)') : '(not set)')
       : String(value);
     return this.colors
-      ? `  ${chalk.cyan(key)}: ${displayValue}`
+      ? `  ${chalk.gray(key)}: ${displayValue}`
       : `  ${key}: ${displayValue}`;
   }
 

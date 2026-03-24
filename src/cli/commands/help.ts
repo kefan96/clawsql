@@ -37,7 +37,6 @@ export const helpCommand: Command = {
     // Show all commands
     const commands = listCommands();
     console.log(formatter.header('Available Commands'));
-    console.log();
 
     const tableData = commands.map(cmd => ({
       command: `/${cmd.name}`,

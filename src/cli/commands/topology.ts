@@ -19,12 +19,9 @@ export const topologyCommand: Command = {
     const orchestrator = ctx.orchestrator;
 
     try {
-      // Get cluster name from args or fetch all clusters
       if (args.length > 0) {
-        // Show specific cluster
         await showClusterTopology(args[0], ctx);
       } else {
-        // Get all clusters
         const clusters = await orchestrator.getClusters();
 
         if (clusters.length === 0) {
@@ -62,34 +59,33 @@ async function showClusterTopology(clusterName: string, ctx: CLIContext): Promis
       return;
     }
 
-    console.log(chalk.bold(`\n📦 Cluster: ${cluster.name}`));
+    console.log('\n' + formatter.section(`Cluster: ${cluster.name}`));
 
     // Show primary
     if (cluster.primary) {
-      const primary = cluster.primary;
-      const status = primary.state === 'online' ? chalk.green('[ONLINE]') : chalk.red('[OFFLINE]');
-      console.log(`  ${chalk.green('●')} ${chalk.bold(primary.host)}:${primary.port} ${status} ${chalk.gray('(PRIMARY)')}`);
+      const p = cluster.primary;
+      const status = p.state === 'online' ? chalk.green('online') : chalk.red('offline');
+      const info = [];
+      if (p.version) info.push(`v${p.version}`);
+      if (p.serverId) info.push(`id:${p.serverId}`);
 
-      if (primary.version) {
-        console.log(chalk.gray(`      Version: ${primary.version}`));
-      }
-      if (primary.serverId) {
-        console.log(chalk.gray(`      Server ID: ${primary.serverId}`));
+      console.log(`  ${chalk.green('●')} ${chalk.bold(`${p.host}:${p.port}`)} ${status} (primary)`);
+      if (info.length > 0) {
+        console.log(chalk.gray(`      ${info.join(', ')}`));
       }
     } else {
-      console.log(chalk.yellow('  ⚠ No primary found'));
+      console.log(chalk.yellow('  No primary found'));
     }
 
     // Show replicas
     if (cluster.replicas.length > 0) {
       console.log(chalk.gray('\n  Replicas:'));
-      for (const replica of cluster.replicas) {
-        const status = replica.state === 'online' ? chalk.green('[ONLINE]') : chalk.red('[OFFLINE]');
-        const lag = replica.replicationLag !== undefined && replica.replicationLag !== null
-          ? chalk.gray(` (lag: ${replica.replicationLag}s)`)
+      for (const r of cluster.replicas) {
+        const status = r.state === 'online' ? chalk.green('online') : chalk.red('offline');
+        const lag = r.replicationLag !== undefined && r.replicationLag !== null
+          ? chalk.gray(` lag:${r.replicationLag}s`)
           : '';
-
-        console.log(`    ${chalk.blue('○')} ${replica.host}:${replica.port} ${status}${lag}`);
+        console.log(`    ${chalk.blue('○')} ${r.host}:${r.port} ${status}${lag}`);
       }
     }
 

@@ -141,7 +141,7 @@ async function executeSwitchover(args: string[], ctx: CLIContext): Promise<void>
   const clusterOrInstance = args[0];
   const targetInstance = args.length > 1 ? args[1] : undefined;
 
-  console.log(formatter.info('🔄 Switchover: Planned primary change (primary is healthy)'));
+  console.log(formatter.info('Switchover: Planned primary change (primary is healthy)'));
 
   try {
     const { cluster, clusterId } = await resolveCluster(ctx, clusterOrInstance);
@@ -208,7 +208,7 @@ async function executeFailover(args: string[], ctx: CLIContext): Promise<void> {
   const clusterOrInstance = args[0];
   const targetInstance = args.length > 1 ? args[1] : undefined;
 
-  console.log(formatter.warning('⚠ Failover: Emergency operation (primary is down)'));
+  console.log(formatter.warning('Failover: Emergency operation (primary is down)'));
 
   try {
     const { cluster, clusterId } = await resolveCluster(ctx, clusterOrInstance);
