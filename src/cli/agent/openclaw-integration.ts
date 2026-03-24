@@ -17,6 +17,8 @@ export interface OpenClawOptions {
 
 /**
  * Check if OpenClaw gateway is running
+ * Note: The status command may show "unreachable" due to internal scope issues,
+ * but the agent can still work. We check if OpenClaw is installed and try to use it.
  */
 export async function isOpenClawAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -33,7 +35,10 @@ export async function isOpenClawAvailable(): Promise<boolean> {
       if (code === 0) {
         try {
           const result = JSON.parse(output);
-          resolve(result.running === true || result.status === 'running');
+          // Gateway is configured if we have a mode and URL, even if status shows unreachable
+          // The agent can still work despite "missing scope: operator.read" errors
+          const hasGateway = result.gateway?.mode === 'local' && !!result.gateway?.url;
+          resolve(hasGateway);
         } catch {
           resolve(false);
         }
@@ -56,14 +61,15 @@ export async function sendToOpenClaw(
   options?: OpenClawOptions
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const args = ['agent', '--message', message];
+    // Use a fixed session ID for ClawSQL interactions
+    const args = ['agent', '--session-id', 'clawsql-session', '--message', message];
 
     if (options?.gatewayUrl) {
       args.push('--gateway', options.gatewayUrl);
     }
 
     const proc = spawn('openclaw', args, {
-      timeout: options?.timeout || 60000,
+      timeout: options?.timeout || 120000,
     });
 
     let stdout = '';
