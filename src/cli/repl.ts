@@ -2,16 +2,25 @@
  * ClawSQL CLI - Interactive REPL
  *
  * Read-Eval-Print Loop for interactive CLI sessions.
+ * Features: Tab completion, keyboard shortcuts, professional UI.
  */
 
 import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import chalk from 'chalk';
-import ora from 'ora';
-import { parseInput, executeCommand, createCLIContext, CLIContext } from './registry.js';
+import { parseInput, executeCommand, createCLIContext, CLIContext, getCommand } from './registry.js';
 import { AIAgent, createAIAgent, loadAIConfig } from './agent/index.js';
+import { createCompleter as createCompleterFn } from './completer.js';
+import {
+  createBanner,
+  createPrompt,
+  createDidYouMean,
+  clearScreen,
+  createSpinner,
+  formatWelcomeMessage,
+  theme,
+} from './ui/components.js';
 
 /**
  * REPL configuration
@@ -43,12 +52,34 @@ export class REPL {
   private agent: AIAgent | null = null;
   private keepAlive: NodeJS.Timeout | null = null;
   private pendingCommand: Promise<void> = Promise.resolve();
+  private completer: ReturnType<typeof createCompleterFn> | null = null;
+  private currentContext: string = '';
+  private orchestratorConnected: boolean = false;
 
   constructor(config?: Partial<REPLConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.context = createCLIContext();
     this.loadHistory();
     this.initAgent();
+    this.initCompleter();
+  }
+
+  /**
+   * Initialize the completer
+   */
+  private initCompleter(): void {
+    this.completer = createCompleterFn();
+  }
+
+  /**
+   * Check orchestrator connection
+   */
+  private async checkOrchestratorConnection(): Promise<boolean> {
+    try {
+      return await this.context.orchestrator.healthCheck();
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -72,13 +103,19 @@ export class REPL {
     // Keep the process alive for async operations
     this.keepAlive = setInterval(() => {}, 10000);
 
-    // Create readline interface
+    // Check orchestrator connection in background
+    this.checkOrchestratorConnection().then(connected => {
+      this.orchestratorConnected = connected;
+    });
+
+    // Create readline interface with completer
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
       prompt: this.getPrompt(),
       historySize: this.config.historySize,
       removeHistoryDuplicates: true,
+      completer: this.completerCallback.bind(this),
     });
 
     // Handle SIGINT (Ctrl+C)
@@ -97,6 +134,17 @@ export class REPL {
 
     // Handle input - chain commands so they execute sequentially
     this.rl.on('line', (input: string) => {
+      // Handle special key sequences
+      if (input === '\x0c') {
+        // Ctrl+L - clear screen
+        clearScreen();
+        this.printBanner();
+        if (this.rl) {
+          this.rl.prompt();
+        }
+        return;
+      }
+
       // Chain this command after the previous one completes
       this.pendingCommand = this.pendingCommand
         .then(() => this.handleInput(input))
@@ -120,6 +168,22 @@ export class REPL {
   }
 
   /**
+   * Completer callback for readline
+   */
+  private completerCallback(
+    line: string,
+    callback: (err: null, result: [string[], string]) => void
+  ): void {
+    if (!this.completer) {
+      callback(null, [[], line]);
+      return;
+    }
+
+    const [completions, original] = this.completer.complete(line);
+    callback(null, [completions, original]);
+  }
+
+  /**
    * Stop the REPL session
    */
   async stop(): Promise<void> {
@@ -136,7 +200,8 @@ export class REPL {
       this.rl.close();
       this.rl = null;
     }
-    console.log('\nGoodbye!');
+    console.log();
+    console.log(theme.primary('👋 Goodbye!'));
     process.exit(0);
   }
 
@@ -154,9 +219,16 @@ export class REPL {
     // Add to history
     this.addToHistory(trimmed);
 
-    // Check for exit command
+    // Check for special commands
     if (trimmed === '/exit' || trimmed === '/quit' || trimmed === '/q') {
       this.stop();
+      return;
+    }
+
+    // Clear screen command
+    if (trimmed === '/clear' || trimmed === '/cls') {
+      clearScreen();
+      this.printBanner();
       return;
     }
 
@@ -164,6 +236,19 @@ export class REPL {
     const parsed = parseInput(trimmed);
     if (parsed) {
       if (parsed.command) {
+        // Check if command exists
+        const cmd = getCommand(parsed.command);
+        if (!cmd) {
+          // Command not found - show suggestions
+          if (this.completer) {
+            const similar = this.completer.findSimilar(parsed.command);
+            console.log(createDidYouMean(`/${parsed.command}`, similar));
+          } else {
+            console.log(this.context.formatter.error(`Unknown command: /${parsed.command}`));
+            console.log(this.context.formatter.info('Type /help to see available commands.'));
+          }
+          return;
+        }
         await executeCommand(parsed.command, parsed.args, this.context);
       } else {
         // No command prefix - treat as natural language
@@ -176,7 +261,7 @@ export class REPL {
    * Handle natural language input using AI agent
    */
   private async handleNaturalLanguage(input: string): Promise<void> {
-    const spinner = ora('Thinking...').start();
+    const spinner = createSpinner('Thinking...').start();
     try {
       const response = await this.agent!.process(input);
       spinner.stop();
@@ -194,7 +279,10 @@ export class REPL {
    * Get the prompt string
    */
   private getPrompt(): string {
-    return chalk.cyan('clawsql> ');
+    return createPrompt({
+      context: this.currentContext || undefined,
+      status: 'normal',
+    });
   }
 
   /**
@@ -202,22 +290,18 @@ export class REPL {
    */
   private printBanner(): void {
     const version = this.context.settings.appVersion;
-    console.log();
-    console.log(chalk.bold.blue('╔════════════════════════════════════════╗'));
-    console.log(chalk.bold.blue('║') + chalk.bold.white('     ClawSQL Interactive CLI v' + version + '     ') + chalk.bold.blue('║'));
-    console.log(chalk.bold.blue('║') + chalk.gray('   MySQL Cluster Management Console     ') + chalk.bold.blue('║'));
-    console.log(chalk.bold.blue('╚════════════════════════════════════════╝'));
-    console.log();
-    console.log(chalk.gray('Type /help to see available commands.'));
-    console.log(chalk.gray('Type /exit or press Ctrl+D to exit.'));
+    const aiProvider = this.agent?.getProviderName();
 
-    // Show AI status
-    if (this.agent?.isConfigured()) {
-      console.log(chalk.gray(`AI: enabled (${this.agent.getProviderName()})`));
-    } else {
-      console.log(chalk.gray('AI: not configured'));
-    }
-    console.log();
+    console.log(createBanner({
+      version,
+      aiStatus: {
+        enabled: this.agent?.isConfigured() ?? false,
+        provider: aiProvider,
+      },
+      orchestratorStatus: this.orchestratorConnected ? 'connected' : 'unknown',
+    }));
+
+    console.log(formatWelcomeMessage());
   }
 
   /**
