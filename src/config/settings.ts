@@ -24,7 +24,7 @@ const MetadataDBSettingsSchema = z.object({
 });
 
 const OrchestratorSettingsSchema = z.object({
-  url: z.string().url().default('http://orchestrator:3000'),
+  url: z.string().url().default('http://localhost:3000'),
   timeout: z.number().positive().default(30.0),
   tlsEnabled: z.boolean().default(false),
   tlsCert: z.string().optional(),
@@ -32,7 +32,7 @@ const OrchestratorSettingsSchema = z.object({
 });
 
 const ProxySQLSettingsSchema = z.object({
-  host: z.string().default('proxysql'),
+  host: z.string().default('localhost'),
   adminPort: z.number().int().default(6032),
   mysqlPort: z.number().int().default(6033),
   adminUser: z.string().default('clawsql'),
@@ -40,7 +40,7 @@ const ProxySQLSettingsSchema = z.object({
 });
 
 const PrometheusSettingsSchema = z.object({
-  url: z.string().url().default('http://prometheus:9090'),
+  url: z.string().url().default('http://localhost:9090'),
   retentionDays: z.number().int().positive().default(15),
 });
 

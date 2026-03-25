@@ -10,7 +10,6 @@ import { registerCommand } from './registry.js';
 // Import all commands
 import helpCommand from './commands/help.js';
 import topologyCommand from './commands/topology.js';
-import healthCommand from './commands/health.js';
 import instancesCommand from './commands/instances.js';
 import clustersCommand from './commands/clusters.js';
 import failoverCommand from './commands/failover.js';
@@ -30,7 +29,6 @@ import doctorCommand from './commands/doctor.js';
 function registerBuiltinCommands(): void {
   registerCommand(helpCommand);
   registerCommand(topologyCommand);
-  registerCommand(healthCommand);
   registerCommand(instancesCommand);
   registerCommand(clustersCommand);
   registerCommand(failoverCommand);

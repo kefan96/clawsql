@@ -25,7 +25,7 @@ export const statusCommand: Command = {
       services: {
         clawsql: await checkService(`http://localhost:${ctx.settings.api.port}/health`, 'healthy'),
         orchestrator: await checkService('http://localhost:3000/api/health', 'OK'),
-        prometheus: await checkService('http://localhost:9090/-/healthy', 'OK'),
+        prometheus: await checkService('http://localhost:9090/-/healthy', 'Healthy'),
         grafana: await checkService('http://localhost:3001/api/health', 'ok'),
         proxysql: await checkProxySQL(ctx),
       },

@@ -55,6 +55,7 @@ export class REPL {
   private completer: ReturnType<typeof createCompleterFn> | null = null;
   private currentContext: string = '';
   private orchestratorConnected: boolean = false;
+  private confirmResolve: ((value: boolean) => void) | null = null;
 
   constructor(config?: Partial<REPLConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -62,6 +63,22 @@ export class REPL {
     this.loadHistory();
     this.initAgent();
     this.initCompleter();
+  }
+
+  /**
+   * Create confirm function that uses the existing readline
+   */
+  private createConfirmFunction(): (message: string) => Promise<boolean> {
+    return (message: string) => {
+      return new Promise((resolve) => {
+        // Store the resolve function
+        this.confirmResolve = resolve;
+
+        // Show the prompt
+        console.log();
+        process.stdout.write(`${message} (y/N): `);
+      });
+    };
   }
 
   /**
@@ -118,6 +135,9 @@ export class REPL {
       completer: this.completerCallback.bind(this),
     });
 
+    // Set up confirm function for commands to use
+    this.context.confirm = this.createConfirmFunction();
+
     // Handle SIGINT (Ctrl+C)
     process.on('SIGINT', () => {
       console.log();
@@ -134,6 +154,16 @@ export class REPL {
 
     // Handle input - chain commands so they execute sequentially
     this.rl.on('line', (input: string) => {
+      // Handle confirm mode first
+      if (this.confirmResolve) {
+        const resolve = this.confirmResolve;
+        this.confirmResolve = null;
+        const answer = input.trim().toLowerCase();
+        // Resolve the promise - the pending command will continue
+        resolve(answer === 'y' || answer === 'yes');
+        return;
+      }
+
       // Handle special key sequences
       if (input === '\x0c') {
         // Ctrl+L - clear screen

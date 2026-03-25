@@ -5,4 +5,4 @@
 rm -f /var/lib/proxysql/proxysql.pid
 
 # Start ProxySQL in foreground
-exec proxysql --config /etc/proxysql.cnf
+exec proxysql --config /etc/proxysql.cnf --foreground

@@ -9,7 +9,6 @@ import chalk from 'chalk';
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as readline from 'readline';
 
 /**
  * Cleanup command
@@ -18,7 +17,7 @@ export const cleanupCommand: Command = {
   name: 'cleanup',
   description: 'Remove all containers, volumes, and data',
   usage: '/cleanup [--force]',
-  handler: async (args: string[], _ctx: CLIContext) => {
+  handler: async (args: string[], ctx: CLIContext) => {
     const force = args.includes('--force');
 
     console.log(chalk.bold.red('⚠️  WARNING: This will remove all ClawSQL containers and data!'));
@@ -26,7 +25,7 @@ export const cleanupCommand: Command = {
 
     // Confirm unless --force
     if (!force) {
-      const confirmed = await confirmAction('Are you sure you want to continue?');
+      const confirmed = await ctx.confirm('Are you sure you want to continue?');
       if (!confirmed) {
         console.log(chalk.yellow('Cleanup cancelled.'));
         return;
@@ -66,23 +65,6 @@ export const cleanupCommand: Command = {
     console.log(chalk.gray('Run "clawsql start" to start fresh.'));
   },
 };
-
-/**
- * Confirm action with user
- */
-async function confirmAction(message: string): Promise<boolean> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  return new Promise((resolve) => {
-    rl.question(`${message} (y/N): `, (answer) => {
-      rl.close();
-      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
-    });
-  });
-}
 
 /**
  * Detect container runtime

@@ -4,6 +4,7 @@
  * Manages registration and lookup of CLI commands.
  */
 
+import * as readline from 'readline';
 import { getSettings } from '../config/settings.js';
 import { getOrchestratorClient } from '../core/discovery/topology.js';
 import { getFailoverExecutor } from '../core/failover/executor.js';
@@ -22,6 +23,8 @@ export interface CLIContext {
   clusterView: ReturnType<typeof getClusterViewService>;
   formatter: Formatter;
   outputFormat: 'table' | 'json';
+  /** Prompt user for confirmation. Returns true if user confirms. */
+  confirm: (message: string) => Promise<boolean>;
 }
 
 /**
@@ -126,9 +129,28 @@ export function listCommands(): Command[] {
 }
 
 /**
+ * Default confirm function for non-REPL contexts (single command execution)
+ */
+function defaultConfirm(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    rl.question(`${message} (y/N): `, (answer) => {
+      rl.close();
+      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
+    });
+  });
+}
+
+/**
  * Create CLI context with all services
  */
-export function createCLIContext(outputFormat: 'table' | 'json' = 'table'): CLIContext {
+export function createCLIContext(
+  outputFormat: 'table' | 'json' = 'table',
+  confirm?: (message: string) => Promise<boolean>
+): CLIContext {
   if (!context) {
     const formatter = getFormatter();
     formatter.setFormat(outputFormat);
@@ -141,10 +163,15 @@ export function createCLIContext(outputFormat: 'table' | 'json' = 'table'): CLIC
       clusterView: getClusterViewService(),
       formatter,
       outputFormat,
+      confirm: confirm || defaultConfirm,
     };
   } else {
     context.formatter.setFormat(outputFormat);
     context.outputFormat = outputFormat;
+    // Update confirm function if provided
+    if (confirm) {
+      context.confirm = confirm;
+    }
   }
   return context;
 }
