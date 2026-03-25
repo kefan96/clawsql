@@ -278,3 +278,81 @@ export function divider(char: string = '─', width: number = 60): string {
 export function formatWelcomeMessage(): string {
   return theme.muted('Type /help for commands, /exit to quit.');
 }
+
+/**
+ * Suggestion item for dropdown
+ */
+export interface SuggestionItem {
+  name: string;
+  description: string;
+}
+
+/**
+ * Format a suggestions dropdown in Claude Code style
+ * Shows command suggestions with descriptions in a formatted panel
+ */
+export function formatSuggestionsDropdown(
+  suggestions: SuggestionItem[],
+  selectedIndex: number,
+  maxWidth: number = process.stdout.columns || 80
+): string {
+  if (suggestions.length === 0) return '';
+
+  const lines: string[] = [];
+
+  // Calculate column widths
+  const nameWidth = Math.max(...suggestions.map(s => s.name.length)) + 2;
+  const descWidth = maxWidth - nameWidth - 4;
+
+  // Top border
+  lines.push(theme.muted('─'.repeat(Math.min(maxWidth, 100))));
+
+  // Suggestions
+  suggestions.forEach((suggestion, index) => {
+    const isSelected = index === selectedIndex;
+    const name = suggestion.name.padEnd(nameWidth);
+    const desc = truncateText(suggestion.description, descWidth);
+
+    if (isSelected) {
+      // Highlight selected item
+      lines.push(
+        theme.primary('❯ ') +
+        theme.primary.bold(name) +
+        theme.muted(desc)
+      );
+    } else {
+      lines.push(
+        '  ' +
+        theme.info(name) +
+        theme.muted(desc)
+      );
+    }
+  });
+
+  // Bottom border
+  lines.push(theme.muted('─'.repeat(Math.min(maxWidth, 100))));
+
+  return lines.join('\n');
+}
+
+/**
+ * Truncate text to fit within maxWidth, adding ellipsis if needed
+ */
+function truncateText(text: string, maxWidth: number): string {
+  if (text.length <= maxWidth) return text;
+  if (maxWidth <= 3) return '...';
+  return text.slice(0, maxWidth - 3) + '...';
+}
+
+/**
+ * Clear the suggestions dropdown from the terminal
+ * @param numLines Number of lines to clear
+ */
+export function clearSuggestionsDropdown(numLines: number): void {
+  // Move cursor up and clear each line
+  for (let i = 0; i < numLines; i++) {
+    process.stdout.write('\x1B[1A'); // Move up one line
+    process.stdout.write('\x1B[2K'); // Clear entire line
+  }
+  process.stdout.write('\x1B[0G'); // Move cursor to beginning of line
+}

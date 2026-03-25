@@ -59,9 +59,13 @@ const SUBCOMMANDS: Record<string, SubcommandInfo[]> = {
     { name: 'list', description: 'List all instances' },
     { name: 'add', description: 'Register new instance' },
     { name: 'remove', description: 'Deregister instance' },
+    { name: 'discover', description: 'Scan network for MySQL instances' },
   ],
   clusters: [
     { name: 'list', description: 'List all clusters' },
+    { name: 'topology', description: 'Show cluster topology' },
+    { name: 'sync', description: 'Sync cluster to ProxySQL' },
+    { name: 'promote', description: 'Promote a replica to primary' },
   ],
   cron: [
     { name: 'list', description: 'List scheduled tasks' },
@@ -71,6 +75,62 @@ const SUBCOMMANDS: Record<string, SubcommandInfo[]> = {
   notify: [
     { name: 'send', description: 'Send notification' },
     { name: 'channels', description: 'List channels' },
+  ],
+  config: [
+    { name: 'show', description: 'Display current configuration' },
+    { name: 'init', description: 'Interactive configuration wizard' },
+    { name: 'set', description: 'Set configuration value' },
+    { name: 'get', description: 'Get configuration value' },
+  ],
+};
+
+/**
+ * Flag definition for autocomplete
+ */
+export interface FlagInfo {
+  name: string;
+  description: string;
+  hasValue?: boolean;
+  valuePlaceholder?: string;
+}
+
+/**
+ * Known flags for each command
+ */
+const FLAGS: Record<string, FlagInfo[]> = {
+  start: [
+    { name: '--demo', description: 'Start with demo MySQL cluster' },
+    { name: '--json', description: 'Output in JSON format' },
+  ],
+  instances: [
+    { name: '--host', description: 'MySQL host', hasValue: true, valuePlaceholder: '<host>' },
+    { name: '--port', description: 'MySQL port', hasValue: true, valuePlaceholder: '<port>' },
+    { name: '--network', description: 'Network to scan', hasValue: true, valuePlaceholder: '<cidr>' },
+    { name: '--user', description: 'Admin user', hasValue: true, valuePlaceholder: '<user>' },
+    { name: '--password', description: 'Admin password', hasValue: true, valuePlaceholder: '<password>' },
+  ],
+  clusters: [
+    { name: '--name', description: 'Cluster name', hasValue: true, valuePlaceholder: '<name>' },
+    { name: '--primary', description: 'Primary host:port', hasValue: true, valuePlaceholder: '<host:port>' },
+    { name: '--replicas', description: 'Replica host:port list', hasValue: true, valuePlaceholder: '<h:p,...>' },
+    { name: '--host', description: 'Host to promote', hasValue: true, valuePlaceholder: '<host:port>' },
+    { name: '--json', description: 'Output in JSON format' },
+  ],
+  failover: [
+    { name: '--host', description: 'Target host:port', hasValue: true, valuePlaceholder: '<host:port>' },
+    { name: '--force', description: 'Skip confirmation prompts' },
+    { name: '--dry-run', description: 'Simulate without executing' },
+  ],
+  cleanup: [
+    { name: '--force', description: 'Skip confirmation prompt' },
+  ],
+  status: [
+    { name: '--json', description: 'Output in JSON format' },
+    { name: '--watch', description: 'Continuously update status' },
+  ],
+  topology: [
+    { name: '--cluster', description: 'Cluster name', hasValue: true, valuePlaceholder: '<name>' },
+    { name: '--json', description: 'Output in JSON format' },
   ],
 };
 
@@ -326,4 +386,22 @@ export function formatCompletions(completions: string[], maxWidth: number = 80):
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Get flags for a command
+ */
+export function getFlags(commandName: string): FlagInfo[] {
+  return FLAGS[commandName] || [];
+}
+
+/**
+ * Complete flags for a command
+ */
+export function completeFlags(commandName: string, partial: string): FlagInfo[] {
+  const flags = FLAGS[commandName];
+  if (!flags) return [];
+
+  const lower = partial.toLowerCase();
+  return flags.filter(f => f.name.toLowerCase().startsWith(lower));
 }

@@ -44,7 +44,7 @@ jest.mock('cli-table3', () => {
   };
 });
 
-import { createCompleter, formatCompletions } from '../../cli/completer';
+import { createCompleter, formatCompletions, getFlags, completeFlags } from '../../cli/completer';
 import * as registry from '../../cli/registry';
 
 // Mock the registry module
@@ -386,5 +386,86 @@ describe('levenshteinDistance (via findSimilar)', () => {
     const result = completer.findSimilar('exitt');
 
     expect(result).toContain('exit');
+  });
+});
+
+describe('getFlags()', () => {
+  it('should return flags for known command', () => {
+    const flags = getFlags('failover');
+
+    expect(flags.length).toBeGreaterThan(0);
+    expect(flags.some(f => f.name === '--force')).toBe(true);
+    expect(flags.some(f => f.name === '--dry-run')).toBe(true);
+  });
+
+  it('should return flags with hasValue property', () => {
+    const flags = getFlags('failover');
+
+    const hostFlag = flags.find(f => f.name === '--host');
+    expect(hostFlag).toBeDefined();
+    expect(hostFlag?.hasValue).toBe(true);
+    expect(hostFlag?.valuePlaceholder).toBe('<host:port>');
+  });
+
+  it('should return empty array for unknown command', () => {
+    const flags = getFlags('unknowncommand');
+
+    expect(flags).toEqual([]);
+  });
+
+  it('should return flags for status command', () => {
+    const flags = getFlags('status');
+
+    expect(flags.some(f => f.name === '--json')).toBe(true);
+    expect(flags.some(f => f.name === '--watch')).toBe(true);
+  });
+
+  it('should return flags for clusters command', () => {
+    const flags = getFlags('clusters');
+
+    expect(flags.some(f => f.name === '--name')).toBe(true);
+    expect(flags.some(f => f.name === '--primary')).toBe(true);
+    expect(flags.some(f => f.name === '--json')).toBe(true);
+  });
+});
+
+describe('completeFlags()', () => {
+  it('should return matching flags for partial input', () => {
+    const flags = completeFlags('failover', '--f');
+
+    expect(flags.length).toBeGreaterThan(0);
+    expect(flags.some(f => f.name === '--force')).toBe(true);
+  });
+
+  it('should return empty array for unknown command', () => {
+    const flags = completeFlags('unknowncommand', '--');
+
+    expect(flags).toEqual([]);
+  });
+
+  it('should match flags case-insensitively', () => {
+    const flags = completeFlags('failover', '--FORCE');
+
+    expect(flags.some(f => f.name === '--force')).toBe(true);
+  });
+
+  it('should return all flags for empty partial', () => {
+    const flags = completeFlags('failover', '--');
+
+    // Should return all flags for failover command
+    expect(flags.length).toBeGreaterThan(0);
+  });
+
+  it('should return empty array for no matching flags', () => {
+    const flags = completeFlags('failover', '--nonexistent');
+
+    expect(flags).toEqual([]);
+  });
+
+  it('should match single dash prefix to double dash flags', () => {
+    // Single dash prefix matches double dash flags
+    const flags = completeFlags('failover', '-');
+    expect(flags.length).toBeGreaterThan(0);
+    expect(flags.some(f => f.name === '--force')).toBe(true);
   });
 });

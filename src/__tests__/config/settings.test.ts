@@ -77,7 +77,7 @@ describe('Settings', () => {
     it('should have correct defaults', () => {
       const settings = getSettings();
 
-      expect(settings.orchestrator.url).toBe('http://orchestrator:3000');
+      expect(settings.orchestrator.url).toBe('http://localhost:3000');
       expect(settings.orchestrator.timeout).toBe(30);
       expect(settings.orchestrator.tlsEnabled).toBe(false);
     });
@@ -87,7 +87,7 @@ describe('Settings', () => {
     it('should have correct defaults', () => {
       const settings = getSettings();
 
-      expect(settings.proxysql.host).toBe('proxysql');
+      expect(settings.proxysql.host).toBe('localhost');
       expect(settings.proxysql.adminPort).toBe(6032);
       expect(settings.proxysql.mysqlPort).toBe(6033);
       expect(settings.proxysql.adminUser).toBe('clawsql');
@@ -99,7 +99,7 @@ describe('Settings', () => {
     it('should have correct defaults', () => {
       const settings = getSettings();
 
-      expect(settings.prometheus.url).toBe('http://prometheus:9090');
+      expect(settings.prometheus.url).toBe('http://localhost:9090');
       expect(settings.prometheus.retentionDays).toBe(15);
     });
   });

@@ -2,10 +2,9 @@
  * ClawSQL CLI - Interactive REPL
  *
  * Read-Eval-Print Loop for interactive CLI sessions.
- * Features: Tab completion, keyboard shortcuts, professional UI.
+ * Features: Real-time suggestions, keyboard navigation, professional UI.
  */
 
-import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -13,6 +12,7 @@ import { parseInput, executeCommand, createCLIContext, CLIContext, getCommand } 
 import { AIAgent, createAIAgent, loadAIConfig } from './agent/index.js';
 import { createCompleter as createCompleterFn } from './completer.js';
 import { StreamingMarkdownProcessor } from './formatter.js';
+import { RawInputHandler } from './raw-input.js';
 import {
   createBanner,
   createPrompt,
@@ -44,18 +44,16 @@ const DEFAULT_CONFIG: REPLConfig = {
  * Interactive REPL session
  */
 export class REPL {
-  private rl: readline.Interface | null = null;
   private config: REPLConfig;
   private context: CLIContext;
   private running: boolean = false;
   private history: string[] = [];
   private agent: AIAgent | null = null;
   private keepAlive: NodeJS.Timeout | null = null;
-  private pendingCommand: Promise<void> = Promise.resolve();
   private completer: ReturnType<typeof createCompleterFn> | null = null;
   private currentContext: string = '';
   private orchestratorConnected: boolean = false;
-  private confirmResolve: ((value: boolean) => void) | null = null;
+  private rawInputHandler: RawInputHandler | null = null;
 
   constructor(config?: Partial<REPLConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -63,22 +61,7 @@ export class REPL {
     this.loadHistory();
     this.initAgent();
     this.initCompleter();
-  }
-
-  /**
-   * Create confirm function that uses the existing readline
-   */
-  private createConfirmFunction(): (message: string) => Promise<boolean> {
-    return (message: string) => {
-      return new Promise((resolve) => {
-        // Store the resolve function
-        this.confirmResolve = resolve;
-
-        // Show the prompt
-        console.log();
-        process.stdout.write(`${message} (y/N): `);
-      });
-    };
+    this.rawInputHandler = new RawInputHandler(this.getPrompt());
   }
 
   /**
@@ -125,100 +108,88 @@ export class REPL {
       this.orchestratorConnected = connected;
     });
 
-    // Create readline interface with completer
-    this.rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      prompt: this.getPrompt(),
-      historySize: this.config.historySize,
-      removeHistoryDuplicates: true,
-      completer: this.completerCallback.bind(this),
-    });
-
-    // Set up confirm function for commands to use
-    this.context.confirm = this.createConfirmFunction();
-
     // Handle SIGINT (Ctrl+C)
     process.on('SIGINT', () => {
       console.log();
-      if (this.rl) {
-        this.rl.prompt();
-      }
+      // The raw input handler handles Ctrl+C internally
     });
 
     // Print welcome banner
     this.printBanner();
 
-    // Start the prompt loop
-    this.rl.prompt();
-
-    // Handle input - chain commands so they execute sequentially
-    this.rl.on('line', (input: string) => {
-      // Handle confirm mode first
-      if (this.confirmResolve) {
-        const resolve = this.confirmResolve;
-        this.confirmResolve = null;
-        const answer = input.trim().toLowerCase();
-        // Resolve the promise - the pending command will continue
-        resolve(answer === 'y' || answer === 'yes');
-        return;
-      }
-
-      // Handle special key sequences
-      if (input === '\x0c') {
-        // Ctrl+L - clear screen
-        clearScreen();
-        this.printBanner();
-        if (this.rl) {
-          this.rl.prompt();
-        }
-        return;
-      }
-
-      // Chain this command after the previous one completes
-      this.pendingCommand = this.pendingCommand
-        .then(() => this.handleInput(input))
-        .then(() => {
-          if (this.running && this.rl) {
-            this.rl.prompt();
-          }
-        })
-        .catch(err => {
-          console.error('Command error:', err);
-        });
-    });
-
-    // Handle close (Ctrl+D)
-    this.rl.on('close', () => {
-      if (!this.running) {
-        // Already stopping programmatically, don't print again
-        return;
-      }
-      this.saveHistory();
-      this.running = false;
-      if (this.keepAlive) {
-        clearInterval(this.keepAlive);
-        this.keepAlive = null;
-      }
-      console.log(theme.primary('Goodbye!'));
-      process.exit(0);
-    });
+    // Start the main input loop with raw input handler
+    this.runInputLoop();
   }
 
   /**
-   * Completer callback for readline
+   * Main input loop using RawInputHandler for real-time suggestions
    */
-  private completerCallback(
-    line: string,
-    callback: (err: null, result: [string[], string]) => void
-  ): void {
-    if (!this.completer) {
-      callback(null, [[], line]);
-      return;
-    }
+  private async runInputLoop(): Promise<void> {
+    while (this.running) {
+      try {
+        // Show prompt and get input with real-time suggestions
+        process.stdout.write(this.getPrompt());
+        const result = await this.rawInputHandler!.readLine();
 
-    const [completions, original] = this.completer.complete(line);
-    callback(null, [completions, original]);
+        if (result.cancelled) {
+          if (this.running) {
+            // Ctrl+C was pressed, show new prompt
+            console.log();
+            continue;
+          }
+          break;
+        }
+
+        const input = result.value.trim();
+
+        // Skip empty input
+        if (!input) {
+          continue;
+        }
+
+        // Add to history
+        this.addToHistory(input);
+
+        // Handle special commands
+        if (input === '/exit' || input === '/quit' || input === '/q') {
+          this.stop();
+          return;
+        }
+
+        // Clear screen command
+        if (input === '/clear' || input === '/cls') {
+          clearScreen();
+          this.printBanner();
+          continue;
+        }
+
+        // Parse and execute command
+        const parsed = parseInput(input);
+        if (parsed) {
+          if (parsed.command) {
+            // Check if command exists
+            const cmd = getCommand(parsed.command);
+            if (!cmd) {
+              // Command not found - show suggestions
+              if (this.completer) {
+                const similar = this.completer.findSimilar(parsed.command);
+                console.log(createDidYouMean(`/${parsed.command}`, similar));
+              } else {
+                console.log(this.context.formatter.error(`Unknown command: /${parsed.command}`));
+                console.log(this.context.formatter.info('Type /help to see available commands.'));
+              }
+              continue;
+            }
+            await executeCommand(parsed.command, parsed.args, this.context);
+          } else {
+            // No command prefix - treat as natural language
+            await this.handleNaturalLanguage(input);
+          }
+        }
+      } catch (err) {
+        console.error('Command error:', err);
+      }
+    }
   }
 
   /**
@@ -233,65 +204,8 @@ export class REPL {
       this.keepAlive = null;
     }
     this.saveHistory();
-    if (this.rl) {
-      this.rl.close();
-      this.rl = null;
-    }
     console.log(theme.primary('Goodbye!'));
     process.exit(0);
-  }
-
-  /**
-   * Handle user input
-   */
-  private async handleInput(input: string): Promise<void> {
-    const trimmed = input.trim();
-
-    // Skip empty input
-    if (!trimmed) {
-      return;
-    }
-
-    // Add to history
-    this.addToHistory(trimmed);
-
-    // Check for special commands
-    if (trimmed === '/exit' || trimmed === '/quit' || trimmed === '/q') {
-      this.running = false; // Set immediately to prevent prompt from showing
-      this.stop();
-      return;
-    }
-
-    // Clear screen command
-    if (trimmed === '/clear' || trimmed === '/cls') {
-      clearScreen();
-      this.printBanner();
-      return;
-    }
-
-    // Parse and execute command
-    const parsed = parseInput(trimmed);
-    if (parsed) {
-      if (parsed.command) {
-        // Check if command exists
-        const cmd = getCommand(parsed.command);
-        if (!cmd) {
-          // Command not found - show suggestions
-          if (this.completer) {
-            const similar = this.completer.findSimilar(parsed.command);
-            console.log(createDidYouMean(`/${parsed.command}`, similar));
-          } else {
-            console.log(this.context.formatter.error(`Unknown command: /${parsed.command}`));
-            console.log(this.context.formatter.info('Type /help to see available commands.'));
-          }
-          return;
-        }
-        await executeCommand(parsed.command, parsed.args, this.context);
-      } else {
-        // No command prefix - treat as natural language
-        await this.handleNaturalLanguage(trimmed);
-      }
-    }
   }
 
   /**

@@ -85,7 +85,7 @@ jest.mock('axios', () => ({
 
 // Mock registry
 jest.mock('../../cli/registry', () => ({
-  listCommands: jest.fn(),
+  listCommands: jest.fn().mockReturnValue([]),
   getRegistry: jest.fn(),
   getCommand: jest.fn(),
   createCLIContext: jest.fn().mockReturnValue({
