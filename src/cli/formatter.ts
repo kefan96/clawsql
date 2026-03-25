@@ -227,6 +227,27 @@ export class Formatter {
 
     lines.push('');
 
+    // Sync warnings (show prominently before health)
+    if (cluster.syncWarnings && cluster.syncWarnings.length > 0) {
+      lines.push(this.colors
+        ? chalk.bold.yellow('  ⚠ SYNC WARNINGS:')
+        : '  ⚠ SYNC WARNINGS:');
+      for (const warning of cluster.syncWarnings) {
+        const icon = warning.type === 'missing_in_proxysql'
+          ? '○'
+          : warning.type === 'wrong_hostgroup'
+            ? '↻'
+            : '?';
+        lines.push(this.colors
+          ? `    ${chalk.yellow(icon)} ${chalk.gray(warning.message)}`
+          : `    ${icon} ${warning.message}`);
+      }
+      lines.push(this.colors
+        ? `  ${chalk.blue('ℹ')} ${chalk.gray('Run /clusters sync to reconcile')}`
+        : '  ℹ Run /clusters sync to reconcile');
+      lines.push('');
+    }
+
     // Health status
     const healthIcon = cluster.health === 'healthy'
       ? (this.colors ? chalk.green('✓') : '✓')
@@ -471,6 +492,15 @@ export interface ClusterInstanceInfo {
 }
 
 /**
+ * Sync warning for display
+ */
+export interface SyncWarningDisplay {
+  type: 'missing_in_proxysql' | 'wrong_hostgroup' | 'unknown_in_orchestrator';
+  instance: string;
+  message: string;
+}
+
+/**
  * Cluster topology data for display
  */
 export interface ClusterTopologyData {
@@ -480,6 +510,7 @@ export interface ClusterTopologyData {
   primary: ClusterInstanceInfo | null;
   replicas: ClusterInstanceInfo[];
   health: string;
+  syncWarnings?: SyncWarningDisplay[];
 }
 
 /**

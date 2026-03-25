@@ -12,6 +12,7 @@ import {
   MergedInstanceInfo,
   InstanceState,
   HealthStatus,
+  SyncWarning,
 } from '../../types/index.js';
 import { OrchestratorClient } from './topology.js';
 import {
@@ -80,6 +81,14 @@ export class ClusterViewService {
       // Calculate health
       const health = this.calculateHealth(primary, replicas);
 
+      // Detect sync warnings
+      const syncWarnings = this.detectSyncWarnings(
+        primary,
+        replicas,
+        hostgroupMap,
+        serverStats
+      );
+
       return {
         clusterId: topology.clusterId,
         displayName: topology.name || clusterName,
@@ -93,6 +102,7 @@ export class ClusterViewService {
         primary,
         replicas,
         health,
+        syncWarnings,
       };
     } catch (error) {
       logger.error({ error, clusterName }, 'Failed to get merged cluster view');
@@ -189,6 +199,87 @@ export class ClusterViewService {
     if (ratio >= 1.0) return HealthStatus.HEALTHY;
     if (ratio >= 0.5) return HealthStatus.DEGRADED;
     return HealthStatus.UNHEALTHY;
+  }
+
+  /**
+   * Detect sync warnings between Orchestrator and ProxySQL
+   */
+  private detectSyncWarnings(
+    primary: MergedInstanceInfo | null,
+    replicas: MergedInstanceInfo[],
+    hostgroupMap: { writer?: number; reader?: number },
+    allServerStats: ProxySQLServerStats[]
+  ): SyncWarning[] {
+    const warnings: SyncWarning[] = [];
+    const orchestratorInstances = new Set<string>();
+
+    // Check primary
+    if (primary) {
+      const key = `${primary.host}:${primary.port}`;
+      orchestratorInstances.add(key);
+
+      // Check if primary is missing in ProxySQL
+      if (!primary.proxysqlStatus) {
+        warnings.push({
+          type: 'missing_in_proxysql',
+          instance: key,
+          message: `Primary ${key} is not configured in ProxySQL`,
+        });
+      }
+      // Check if primary is in wrong hostgroup (should be in writer)
+      else if (
+        hostgroupMap.writer !== undefined &&
+        primary.hostgroup !== undefined &&
+        primary.hostgroup !== hostgroupMap.writer
+      ) {
+        warnings.push({
+          type: 'wrong_hostgroup',
+          instance: key,
+          message: `Primary ${key} is in hostgroup ${primary.hostgroup} (should be ${hostgroupMap.writer})`,
+        });
+      }
+    }
+
+    // Check replicas
+    for (const replica of replicas) {
+      const key = `${replica.host}:${replica.port}`;
+      orchestratorInstances.add(key);
+
+      // Check if replica is missing in ProxySQL
+      if (!replica.proxysqlStatus) {
+        warnings.push({
+          type: 'missing_in_proxysql',
+          instance: key,
+          message: `Replica ${key} is not configured in ProxySQL`,
+        });
+      }
+      // Check if replica is in wrong hostgroup (should be in reader)
+      else if (
+        hostgroupMap.reader !== undefined &&
+        replica.hostgroup !== undefined &&
+        replica.hostgroup !== hostgroupMap.reader
+      ) {
+        warnings.push({
+          type: 'wrong_hostgroup',
+          instance: key,
+          message: `Replica ${key} is in hostgroup ${replica.hostgroup} (should be ${hostgroupMap.reader})`,
+        });
+      }
+    }
+
+    // Check for instances in ProxySQL that are not in Orchestrator topology
+    for (const stat of allServerStats) {
+      const key = `${stat.host}:${stat.port}`;
+      if (!orchestratorInstances.has(key) && stat.status === 'ONLINE') {
+        warnings.push({
+          type: 'unknown_in_orchestrator',
+          instance: key,
+          message: `${key} is in ProxySQL but not in Orchestrator topology`,
+        });
+      }
+    }
+
+    return warnings;
   }
 }
 

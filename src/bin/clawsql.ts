@@ -26,7 +26,7 @@ program
   .option('-s, --server', 'Start HTTP API server instead of CLI')
   .option('-c, --command <cmd>', 'Execute a single command and exit')
   .option('--json', 'Output in JSON format (with -c)')
-  .action(async (options) => {
+  .action(async (options: { server?: boolean; command?: string; json?: boolean }) => {
     if (options.server) {
       // Start HTTP API server
       console.log('Starting ClawSQL HTTP API server...');
@@ -36,7 +36,7 @@ program
       await executeSingleCommand(options.command, { json: options.json });
     } else {
       // Start interactive CLI
-      await startCLI();
+      startCLI();
     }
   })
   .parse();

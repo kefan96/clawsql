@@ -285,6 +285,16 @@ export interface HostgroupConfig {
   reader: number;
 }
 
+/** Sync warning type */
+export interface SyncWarning {
+  /** Warning type: missing_in_proxysql, wrong_hostgroup, unknown_in_orchestrator */
+  type: 'missing_in_proxysql' | 'wrong_hostgroup' | 'unknown_in_orchestrator';
+  /** Instance identifier */
+  instance: string;
+  /** Human-readable description */
+  message: string;
+}
+
 /** Merged cluster view combining Orchestrator topology with ProxySQL routing */
 export interface MergedClusterView {
   /** Cluster identifier from Orchestrator */
@@ -301,4 +311,6 @@ export interface MergedClusterView {
   replicas: MergedInstanceInfo[];
   /** Overall cluster health */
   health: HealthStatus;
+  /** Sync warnings when ProxySQL and Orchestrator are out of sync */
+  syncWarnings?: SyncWarning[];
 }

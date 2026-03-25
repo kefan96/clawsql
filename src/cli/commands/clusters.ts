@@ -339,6 +339,7 @@ function displayMergedTopology(view: import('../../types/index.js').MergedCluste
       connections: r.connections,
     })),
     health: view.health,
+    syncWarnings: view.syncWarnings,
   }));
 }
 

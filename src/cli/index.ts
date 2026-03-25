@@ -48,12 +48,12 @@ function registerBuiltinCommands(): void {
 /**
  * Start the interactive CLI
  */
-export async function startCLI(): Promise<void> {
+export function startCLI(): void {
   // Register all built-in commands
   registerBuiltinCommands();
 
   // Start the REPL
-  await startREPL();
+  startREPL();
 }
 
 /**

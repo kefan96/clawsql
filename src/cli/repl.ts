@@ -97,14 +97,14 @@ export class REPL {
   /**
    * Start the REPL session
    */
-  async start(): Promise<void> {
+  start(): void {
     this.running = true;
 
     // Keep the process alive for async operations
     this.keepAlive = setInterval(() => {}, 10000);
 
     // Check orchestrator connection in background
-    this.checkOrchestratorConnection().then(connected => {
+    void this.checkOrchestratorConnection().then(connected => {
       this.orchestratorConnected = connected;
     });
 
@@ -160,13 +160,16 @@ export class REPL {
 
     // Handle close (Ctrl+D)
     this.rl.on('close', () => {
+      if (!this.running) {
+        // Already stopping programmatically, don't print again
+        return;
+      }
       this.saveHistory();
       this.running = false;
       if (this.keepAlive) {
         clearInterval(this.keepAlive);
         this.keepAlive = null;
       }
-      console.log();
       console.log(theme.primary('Goodbye!'));
       process.exit(0);
     });
@@ -191,11 +194,10 @@ export class REPL {
   /**
    * Stop the REPL session
    */
-  async stop(): Promise<void> {
-    // Wait for any pending command to complete
-    await this.pendingCommand;
-
+  stop(): void {
+    // Set running to false immediately to prevent prompt from showing
     this.running = false;
+
     if (this.keepAlive) {
       clearInterval(this.keepAlive);
       this.keepAlive = null;
@@ -225,6 +227,7 @@ export class REPL {
 
     // Check for special commands
     if (trimmed === '/exit' || trimmed === '/quit' || trimmed === '/q') {
+      this.running = false; // Set immediately to prevent prompt from showing
       this.stop();
       return;
     }
@@ -425,7 +428,7 @@ export class REPL {
 /**
  * Start an interactive REPL session
  */
-export async function startREPL(): Promise<void> {
+export function startREPL(): void {
   const repl = new REPL();
-  await repl.start();
+  repl.start();
 }

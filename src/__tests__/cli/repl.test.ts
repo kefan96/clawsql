@@ -238,22 +238,22 @@ describe('REPL', () => {
   });
 
   describe('stop()', () => {
-    it('should call process.exit(0)', async () => {
+    it('should call process.exit(0)', () => {
       repl = new REPL({ historyFile: tempHistoryFile });
 
       // The stop method calls process.exit(0)
       // Since we mock process.exit to throw, we expect an error
-      await expect(repl.stop()).rejects.toThrow('Process exit with code 0');
+      expect(() => repl.stop()).toThrow('Process exit with code 0');
     });
 
-    it('should not print extra newline before Goodbye', async () => {
+    it('should not print extra newline before Goodbye', () => {
       repl = new REPL({ historyFile: tempHistoryFile });
 
       // Capture console.log output
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
       try {
-        await repl.stop();
+        repl.stop();
       } catch {
         // Expected - process.exit throws
       }
@@ -271,25 +271,25 @@ describe('REPL', () => {
   });
 
   describe('handleInput (via stop)', () => {
-    it('should handle /exit command', async () => {
+    it('should handle /exit command', () => {
       repl = new REPL({ historyFile: tempHistoryFile });
 
       // stop() is called by /exit
-      await expect(repl.stop()).rejects.toThrow('Process exit with code 0');
+      expect(() => repl.stop()).toThrow('Process exit with code 0');
     });
 
-    it('should handle /quit command (same as exit)', async () => {
+    it('should handle /quit command (same as exit)', () => {
       repl = new REPL({ historyFile: tempHistoryFile });
 
       // /quit calls stop() which calls process.exit
-      await expect(repl.stop()).rejects.toThrow('Process exit with code 0');
+      expect(() => repl.stop()).toThrow('Process exit with code 0');
     });
 
-    it('should handle /q command (same as exit)', async () => {
+    it('should handle /q command (same as exit)', () => {
       repl = new REPL({ historyFile: tempHistoryFile });
 
       // /q calls stop() which calls process.exit
-      await expect(repl.stop()).rejects.toThrow('Process exit with code 0');
+      expect(() => repl.stop()).toThrow('Process exit with code 0');
     });
   });
 

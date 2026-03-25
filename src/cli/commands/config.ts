@@ -198,8 +198,17 @@ async function initConfig(ctx: CLIContext): Promise<void> {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const questions: any[] = [
+  // Question types for inquirer
+  interface ConfigQuestion {
+    type: 'input' | 'password' | 'confirm' | 'list';
+    name: string;
+    message: string;
+    default?: string | number | boolean;
+    choices?: string[];
+    mask?: string;
+  }
+
+  const questions: ConfigQuestion[] = [
     {
       type: 'input',
       name: 'mysqlAdminUser',
