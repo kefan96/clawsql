@@ -251,3 +251,54 @@ export function getClusterHealthStatus(cluster: MySQLCluster): HealthStatus {
   if (healthyRatio >= 0.5) return HealthStatus.DEGRADED;
   return HealthStatus.UNHEALTHY;
 }
+
+// =============================================================================
+// Merged Cluster View Types (Orchestrator + ProxySQL)
+// =============================================================================
+
+/** Instance with merged Orchestrator and ProxySQL data */
+export interface MergedInstanceInfo {
+  host: string;
+  port: number;
+  state: InstanceState;
+  role: InstanceRole;
+  version?: string;
+  serverId?: number;
+  replicationLag?: number;
+  /** ProxySQL hostgroup (10=writer, 20=reader) */
+  hostgroup?: number;
+  /** ProxySQL server status (ONLINE, OFFLINE_SOFT, etc.) */
+  proxysqlStatus?: string;
+  /** Active connections from ProxySQL connection pool */
+  connections?: number;
+}
+
+/** ProxySQL endpoint information */
+export interface ProxySQLEndpoint {
+  host: string;
+  port: number;
+}
+
+/** Hostgroup routing configuration */
+export interface HostgroupConfig {
+  writer: number;
+  reader: number;
+}
+
+/** Merged cluster view combining Orchestrator topology with ProxySQL routing */
+export interface MergedClusterView {
+  /** Cluster identifier from Orchestrator */
+  clusterId: string;
+  /** User-friendly cluster name */
+  displayName: string;
+  /** ProxySQL endpoint for client connections */
+  endpoint?: ProxySQLEndpoint;
+  /** Hostgroup routing configuration */
+  hostgroups?: HostgroupConfig;
+  /** Primary instance with merged data */
+  primary: MergedInstanceInfo | null;
+  /** Replica instances with merged data */
+  replicas: MergedInstanceInfo[];
+  /** Overall cluster health */
+  health: HealthStatus;
+}

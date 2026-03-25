@@ -5,7 +5,6 @@
  */
 
 import { Command, CLIContext } from '../registry.js';
-import chalk from 'chalk';
 
 /**
  * Clusters command
@@ -61,12 +60,12 @@ export const clustersCommand: Command = {
  */
 async function listClusters(ctx: CLIContext): Promise<void> {
   const formatter = ctx.formatter;
-  const orchestrator = ctx.orchestrator;
+  const clusterView = ctx.clusterView;
 
   try {
-    const clustersInfo = await orchestrator.getAllClustersWithInfo();
+    const views = await clusterView.getAllMergedViews();
 
-    if (clustersInfo.length === 0) {
+    if (views.length === 0) {
       if (ctx.outputFormat === 'json') {
         console.log(JSON.stringify({ clusters: [] }, null, 2));
       } else {
@@ -79,26 +78,33 @@ async function listClusters(ctx: CLIContext): Promise<void> {
 
     const clusters: Array<{
       name: string;
-      alias: string;
       primary: string;
       replicas: number;
+      endpoint: string;
+      hostgroups: string;
+      health: string;
     }> = [];
 
-    for (const info of clustersInfo) {
-      const cluster = await orchestrator.getTopology(info.clusterName);
+    for (const view of views) {
       clusters.push({
-        name: info.displayName,
-        alias: info.clusterName,
-        primary: cluster?.primary
-          ? `${cluster.primary.host}:${cluster.primary.port}`
+        name: view.displayName,
+        primary: view.primary
+          ? `${view.primary.host}:${view.primary.port}`
           : 'N/A',
-        replicas: cluster?.replicas.length ?? 0,
+        replicas: view.replicas.length,
+        endpoint: view.endpoint
+          ? `${view.endpoint.host}:${view.endpoint.port}`
+          : 'N/A',
+        hostgroups: view.hostgroups
+          ? `${view.hostgroups.writer}/${view.hostgroups.reader}`
+          : 'N/A',
+        health: view.health,
       });
     }
 
     // JSON output
     if (ctx.outputFormat === 'json') {
-      console.log(JSON.stringify({ clusters }, null, 2));
+      console.log(JSON.stringify({ clusters: views }, null, 2));
       return;
     }
 
@@ -106,9 +112,11 @@ async function listClusters(ctx: CLIContext): Promise<void> {
     console.log(formatter.header('MySQL Clusters'));
     console.log(formatter.table(clusters, [
       { key: 'name', header: 'Cluster', width: 20 },
-      { key: 'alias', header: 'Orchestrator ID', width: 25 },
-      { key: 'primary', header: 'Primary', width: 25 },
-      { key: 'replicas', header: 'Replicas', width: 10 },
+      { key: 'primary', header: 'Primary', width: 22 },
+      { key: 'replicas', header: 'Replicas', width: 8 },
+      { key: 'endpoint', header: 'Endpoint', width: 20 },
+      { key: 'hostgroups', header: 'HG (W/R)', width: 12 },
+      { key: 'health', header: 'Health', width: 10 },
     ]));
 
     console.log(formatter.info(`Total: ${clusters.length} clusters`));
@@ -275,61 +283,63 @@ async function showTopology(args: string[], ctx: CLIContext): Promise<void> {
 
   if (!name) {
     // Show all topologies
-    const clusters = await ctx.orchestrator.getClusters();
-    for (const clusterName of clusters) {
-      await displayTopology(clusterName, ctx);
+    const views = await ctx.clusterView.getAllMergedViews();
+    for (const view of views) {
+      displayMergedTopology(view, ctx);
     }
     return;
   }
 
-  await displayTopology(name, ctx);
+  const view = await ctx.clusterView.getMergedView(name);
+  if (!view) {
+    console.log(ctx.formatter.warning(`Cluster '${name}' not found.`));
+    return;
+  }
+  displayMergedTopology(view, ctx);
 }
 
 /**
- * Display topology for a cluster
+ * Display merged topology for a cluster
  */
-async function displayTopology(clusterName: string, ctx: CLIContext): Promise<void> {
+function displayMergedTopology(view: import('../../types/index.js').MergedClusterView, ctx: CLIContext): void {
   const formatter = ctx.formatter;
 
-  try {
-    const topology = await ctx.orchestrator.getTopology(clusterName);
-    if (!topology) {
-      console.log(formatter.warning(`Cluster '${clusterName}' not found.`));
-      return;
-    }
-
-    console.log(formatter.section(`Cluster: ${topology.name || clusterName}`));
-
-    if (topology.primary) {
-      const p = topology.primary;
-      const status = p.state === 'online' ? chalk.green('online') : chalk.red('offline');
-      const info = [];
-      if (p.version) info.push(`v${p.version}`);
-      if (p.serverId) info.push(`id:${p.serverId}`);
-
-      console.log(`  ${chalk.green('●')} ${chalk.bold(`${p.host}:${p.port}`)} ${status} (primary)`);
-      if (info.length > 0) {
-        console.log(chalk.gray(`      ${info.join(', ')}`));
-      }
-    } else {
-      console.log(chalk.yellow('  No primary found'));
-    }
-
-    if (topology.replicas.length > 0) {
-      console.log(chalk.gray('\n  Replicas:'));
-      for (const r of topology.replicas) {
-        const status = r.state === 'online' ? chalk.green('online') : chalk.red('offline');
-        const lag = r.replicationLag !== undefined && r.replicationLag !== null
-          ? chalk.gray(` lag:${r.replicationLag}s`)
-          : '';
-        console.log(`    ${chalk.blue('○')} ${r.host}:${r.port} ${status}${lag}`);
-      }
-    }
-
-    console.log();
-  } catch (error) {
-    console.log(formatter.error(`Error getting topology for ${clusterName}`));
+  // JSON output
+  if (ctx.outputFormat === 'json') {
+    console.log(JSON.stringify(view, null, 2));
+    return;
   }
+
+  // Table output using formatter
+  console.log(formatter.clusterTopology({
+    displayName: view.displayName,
+    endpoint: view.endpoint,
+    hostgroups: view.hostgroups,
+    primary: view.primary ? {
+      host: view.primary.host,
+      port: view.primary.port,
+      state: view.primary.state,
+      role: view.primary.role,
+      version: view.primary.version,
+      serverId: view.primary.serverId,
+      hostgroup: view.primary.hostgroup,
+      proxysqlStatus: view.primary.proxysqlStatus,
+      connections: view.primary.connections,
+    } : null,
+    replicas: view.replicas.map(r => ({
+      host: r.host,
+      port: r.port,
+      state: r.state,
+      role: r.role,
+      version: r.version,
+      serverId: r.serverId,
+      replicationLag: r.replicationLag,
+      hostgroup: r.hostgroup,
+      proxysqlStatus: r.proxysqlStatus,
+      connections: r.connections,
+    })),
+    health: view.health,
+  }));
 }
 
 /**

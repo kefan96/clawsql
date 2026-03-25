@@ -36,6 +36,31 @@ export interface ProxySQLServer {
 }
 
 /**
+ * ProxySQL server runtime statistics
+ */
+export interface ProxySQLServerStats {
+  hostgroupId: number;
+  host: string;
+  port: number;
+  status: string;
+  connUsed: number;
+  connFree: number;
+  connOk: number;
+  connErr: number;
+  queries: number;
+}
+
+/**
+ * ProxySQL replication hostgroup mapping
+ */
+export interface ProxySQLReplicationHostgroup {
+  writerHostgroup: number;
+  readerHostgroup: number;
+  clusterId?: string;
+  comment?: string;
+}
+
+/**
  * ProxySQL query rule
  */
 export interface ProxySQLRule {
@@ -458,14 +483,108 @@ export class ProxySQLManager {
   }
 
   /**
-   * Get servers for a hostgroup
+   * Get servers configured in ProxySQL (queries live from mysql_servers table)
    */
   async getServers(hostgroupId?: number): Promise<ProxySQLServer[]> {
-    const servers = Array.from(this.servers.values());
-    if (hostgroupId !== undefined) {
-      return servers.filter(s => s.hostgroupId === hostgroupId);
+    try {
+      const rows = await this.execute(
+        `SELECT hostgroup_id, hostname, port, weight, status, max_connections, comment
+         FROM mysql_servers`
+      );
+
+      const servers: ProxySQLServer[] = (rows as Record<string, unknown>[]).map((row) => ({
+        hostgroupId: Number(row.hostgroup_id),
+        hostname: row.hostname as string,
+        port: Number(row.port),
+        weight: Number(row.weight),
+        status: row.status as 'ONLINE' | 'OFFLINE_SOFT' | 'OFFLINE_HARD',
+        maxConnections: Number(row.max_connections),
+        comment: row.comment as string | undefined,
+      }));
+
+      // Update in-memory cache
+      this.servers.clear();
+      for (const server of servers) {
+        const key = `${server.hostgroupId}:${server.hostname}:${server.port}`;
+        this.servers.set(key, server);
+      }
+
+      if (hostgroupId !== undefined) {
+        return servers.filter(s => s.hostgroupId === hostgroupId);
+      }
+      return servers;
+    } catch (error) {
+      logger.error({ error }, 'Failed to get servers from ProxySQL');
+      // Fallback to in-memory cache
+      const cachedServers = Array.from(this.servers.values());
+      if (hostgroupId !== undefined) {
+        return cachedServers.filter(s => s.hostgroupId === hostgroupId);
+      }
+      return cachedServers;
     }
-    return servers;
+  }
+
+  /**
+   * Get live server statistics from ProxySQL stats_mysql_connection_pool
+   */
+  async getServerStats(): Promise<ProxySQLServerStats[]> {
+    try {
+      const rows = await this.execute(
+        `SELECT hostgroup, srv_host, srv_port, status,
+                ConnUsed, ConnFree, ConnOK, ConnERR, Queries
+         FROM stats_mysql_connection_pool`
+      );
+
+      return (rows as Record<string, unknown>[]).map((row) => ({
+        hostgroupId: Number(row.hostgroup),
+        host: row.srv_host as string,
+        port: Number(row.srv_port),
+        status: row.status as string,
+        connUsed: Number(row.ConnUsed),
+        connFree: Number(row.ConnFree),
+        connOk: Number(row.ConnOK),
+        connErr: Number(row.ConnERR),
+        queries: Number(row.Queries),
+      }));
+    } catch (error) {
+      logger.error({ error }, 'Failed to get server stats from ProxySQL');
+      return [];
+    }
+  }
+
+  /**
+   * Get replication hostgroup mappings
+   */
+  async getReplicationHostgroups(): Promise<ProxySQLReplicationHostgroup[]> {
+    try {
+      const rows = await this.execute(
+        `SELECT writer_hostgroup, reader_hostgroup, comment
+         FROM mysql_replication_hostgroups`
+      );
+
+      return (rows as Record<string, unknown>[]).map((row) => ({
+        writerHostgroup: Number(row.writer_hostgroup),
+        readerHostgroup: Number(row.reader_hostgroup),
+        comment: row.comment as string | undefined,
+      }));
+    } catch (error) {
+      logger.error({ error }, 'Failed to get replication hostgroups from ProxySQL');
+      return [];
+    }
+  }
+
+  /**
+   * Get the MySQL port that clients connect to
+   */
+  getMySQLPort(): number {
+    return this.settings.mysqlPort;
+  }
+
+  /**
+   * Get the ProxySQL host
+   */
+  getHost(): string {
+    return this.settings.host;
   }
 
   /**

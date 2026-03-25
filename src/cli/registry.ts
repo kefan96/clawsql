@@ -8,6 +8,7 @@ import { getSettings } from '../config/settings.js';
 import { getOrchestratorClient } from '../core/discovery/topology.js';
 import { getFailoverExecutor } from '../core/failover/executor.js';
 import { getProxySQLManager } from '../core/routing/proxysql-manager.js';
+import { getClusterViewService } from '../core/discovery/cluster-view.js';
 import { Formatter, getFormatter } from './formatter.js';
 
 /**
@@ -18,6 +19,7 @@ export interface CLIContext {
   orchestrator: ReturnType<typeof getOrchestratorClient>;
   failoverExecutor: ReturnType<typeof getFailoverExecutor>;
   proxysql: ReturnType<typeof getProxySQLManager>;
+  clusterView: ReturnType<typeof getClusterViewService>;
   formatter: Formatter;
   outputFormat: 'table' | 'json';
 }
@@ -136,6 +138,7 @@ export function createCLIContext(outputFormat: 'table' | 'json' = 'table'): CLIC
       orchestrator: getOrchestratorClient(),
       failoverExecutor: getFailoverExecutor(),
       proxysql: getProxySQLManager(),
+      clusterView: getClusterViewService(),
       formatter,
       outputFormat,
     };

@@ -201,6 +201,134 @@ export class Formatter {
   }
 
   /**
+   * Format a merged cluster topology view
+   */
+  clusterTopology(cluster: ClusterTopologyData): string {
+    const lines: string[] = [];
+
+    // Header
+    const headerLine = '─'.repeat(50);
+    lines.push(this.colors ? chalk.bold.blue(headerLine) : headerLine);
+    lines.push(this.colors ? chalk.bold(`  Cluster: ${cluster.displayName}`) : `  Cluster: ${cluster.displayName}`);
+    lines.push(this.colors ? chalk.bold.blue(headerLine) : headerLine);
+
+    // Endpoint and hostgroups
+    if (cluster.endpoint) {
+      lines.push(this.colors
+        ? `  ${chalk.gray('Endpoint:')} ${chalk.cyan(`${cluster.endpoint.host}:${cluster.endpoint.port}`)}`
+        : `  Endpoint: ${cluster.endpoint.host}:${cluster.endpoint.port}`);
+    }
+
+    if (cluster.hostgroups) {
+      lines.push(this.colors
+        ? `  ${chalk.gray('Hostgroups:')} ${chalk.bold.green('RW')}=${chalk.yellow(cluster.hostgroups.writer.toString())}, ${chalk.cyan('RO')}=${chalk.yellow(cluster.hostgroups.reader.toString())}`
+        : `  Hostgroups: RW=${cluster.hostgroups.writer}, RO=${cluster.hostgroups.reader}`);
+    }
+
+    lines.push('');
+
+    // Health status
+    const healthIcon = cluster.health === 'healthy'
+      ? (this.colors ? chalk.green('✓') : '✓')
+      : cluster.health === 'degraded'
+        ? (this.colors ? chalk.yellow('⚠') : '⚠')
+        : (this.colors ? chalk.red('✗') : '✗');
+    lines.push(this.colors
+      ? `  ${healthIcon} ${chalk.gray('Health:')} ${cluster.health}`
+      : `  ${healthIcon} Health: ${cluster.health}`);
+
+    lines.push('');
+
+    // Primary
+    if (cluster.primary) {
+      lines.push(this.colors ? chalk.bold('  Primary:') : '  Primary:');
+      lines.push(this.formatInstanceLine(cluster.primary, 'primary', cluster.hostgroups));
+    } else {
+      lines.push(this.colors
+        ? chalk.yellow('  No primary found')
+        : '  No primary found');
+    }
+
+    // Replicas
+    if (cluster.replicas.length > 0) {
+      lines.push('');
+      lines.push(this.colors ? chalk.bold('  Replicas:') : '  Replicas:');
+      for (const replica of cluster.replicas) {
+        lines.push(this.formatInstanceLine(replica, 'replica', cluster.hostgroups));
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Format a single instance line for cluster topology
+   */
+  private formatInstanceLine(instance: ClusterInstanceInfo, type: 'primary' | 'replica', hostgroups?: { writer: number; reader: number }): string {
+    const icon = type === 'primary'
+      ? (this.colors ? chalk.green('●') : '●')
+      : (this.colors ? chalk.blue('○') : '○');
+
+    const statusColor = instance.state === 'online'
+      ? chalk.green
+      : instance.state === 'offline'
+        ? chalk.red
+        : chalk.yellow;
+
+    const hostPort = `${instance.host}:${instance.port}`;
+    const status = instance.state;
+
+    // Build info parts
+    const infoParts: string[] = [];
+
+    // Determine RW/RO label based on hostgroup
+    if (instance.hostgroup !== undefined && hostgroups) {
+      const rwLabel = instance.hostgroup === hostgroups.writer
+        ? (this.colors ? chalk.bold.green('RW') : 'RW')
+        : instance.hostgroup === hostgroups.reader
+          ? (this.colors ? chalk.cyan('RO') : 'RO')
+          : `hg:${instance.hostgroup}`;
+      infoParts.push(rwLabel);
+    } else if (instance.hostgroup !== undefined) {
+      infoParts.push(`hg:${instance.hostgroup}`);
+    }
+
+    if (instance.proxysqlStatus) {
+      const psColor = instance.proxysqlStatus === 'ONLINE'
+        ? chalk.green
+        : chalk.yellow;
+      infoParts.push(this.colors
+        ? psColor(instance.proxysqlStatus)
+        : instance.proxysqlStatus);
+    }
+
+    if (instance.connections !== undefined && instance.connections > 0) {
+      infoParts.push(`conns:${instance.connections}`);
+    }
+
+    if (type === 'replica' && instance.replicationLag !== undefined) {
+      infoParts.push(`lag:${instance.replicationLag}s`);
+    }
+
+    const infoStr = infoParts.length > 0
+      ? (this.colors ? chalk.gray(`(${infoParts.join(', ')})`) : `(${infoParts.join(', ')})`)
+      : '';
+
+    const line = `    ${icon} ${hostPort} ${statusColor(`[${status}]`)} ${infoStr}`;
+
+    // Additional details on next line
+    const details: string[] = [];
+    if (instance.version) details.push(`v${instance.version}`);
+    if (instance.serverId) details.push(`id:${instance.serverId}`);
+
+    if (details.length > 0 && type === 'primary') {
+      return line + '\n' + (this.colors ? chalk.gray(`        ${details.join(', ')}`) : `        ${details.join(', ')}`);
+    }
+
+    return line;
+  }
+
+  /**
    * Convert markdown to terminal-formatted text
    */
   markdown(text: string): string {
@@ -324,6 +452,34 @@ export interface TreeNode {
   status?: string;
   extra?: string;
   children?: TreeNode[];
+}
+
+/**
+ * Merged instance info for cluster topology display
+ */
+export interface ClusterInstanceInfo {
+  host: string;
+  port: number;
+  state: string;
+  role: string;
+  version?: string;
+  serverId?: number;
+  replicationLag?: number;
+  hostgroup?: number;
+  proxysqlStatus?: string;
+  connections?: number;
+}
+
+/**
+ * Cluster topology data for display
+ */
+export interface ClusterTopologyData {
+  displayName: string;
+  endpoint?: { host: string; port: number };
+  hostgroups?: { writer: number; reader: number };
+  primary: ClusterInstanceInfo | null;
+  replicas: ClusterInstanceInfo[];
+  health: string;
 }
 
 /**

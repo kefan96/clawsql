@@ -82,6 +82,9 @@ async function runDiagnostics(ctx: CLIContext, results: DiagnosticResult[]): Pro
   // MySQL checks
   await checkMySQLInstances(ctx, results);
   await checkReplicationTopology(ctx, results);
+
+  // Sync check
+  await checkProxySQLSync(ctx, results);
 }
 
 /**
@@ -475,6 +478,155 @@ async function checkReplicationTopology(ctx: CLIContext, results: DiagnosticResu
     }
   } catch {
     // Orchestrator may not be available
+  }
+}
+
+/**
+ * Check ProxySQL sync with Orchestrator topology
+ */
+async function checkProxySQLSync(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
+  try {
+    // Get topology from Orchestrator
+    const clusters = await ctx.orchestrator.getClusters();
+    if (clusters.length === 0) {
+      return; // No clusters to sync
+    }
+
+    // Get ProxySQL server stats and hostgroups
+    let proxysqlServers: Array<{ hostgroupId: number; hostname: string; port: number; status: string }> = [];
+    let hostgroups: Array<{ writerHostgroup: number; readerHostgroup: number }> = [];
+
+    try {
+      await ctx.proxysql.connect();
+      proxysqlServers = await ctx.proxysql.getServers() as Array<{ hostgroupId: number; hostname: string; port: number; status: string }>;
+      hostgroups = await ctx.proxysql.getReplicationHostgroups();
+      await ctx.proxysql.close();
+    } catch {
+      // ProxySQL not available - already reported in checkProxySQL
+      return;
+    }
+
+    // Build expected instances from Orchestrator
+    const expectedInstances = new Map<string, { host: string; port: number; role: string; cluster: string }>();
+
+    for (const clusterName of clusters) {
+      const topology = await ctx.orchestrator.getTopology(clusterName);
+      if (!topology) continue;
+
+      if (topology.primary) {
+        const key = `${topology.primary.host}:${topology.primary.port}`;
+        expectedInstances.set(key, {
+          host: topology.primary.host,
+          port: topology.primary.port,
+          role: 'primary',
+          cluster: topology.name || clusterName,
+        });
+      }
+
+      for (const replica of topology.replicas) {
+        const key = `${replica.host}:${replica.port}`;
+        expectedInstances.set(key, {
+          host: replica.host,
+          port: replica.port,
+          role: 'replica',
+          cluster: topology.name || clusterName,
+        });
+      }
+    }
+
+    // Build actual ProxySQL instances
+    const proxysqlInstances = new Map<string, { host: string; port: number; hostgroup: number; status: string }>();
+    for (const server of proxysqlServers) {
+      const key = `${server.hostname}:${server.port}`;
+      proxysqlInstances.set(key, {
+        host: server.hostname,
+        port: server.port,
+        hostgroup: server.hostgroupId,
+        status: server.status,
+      });
+    }
+
+    // Determine default hostgroups (coerce to numbers)
+    const defaultWriterHG = hostgroups.length > 0 ? Number(hostgroups[0].writerHostgroup) : 10;
+    const defaultReaderHG = hostgroups.length > 0 ? Number(hostgroups[0].readerHostgroup) : 20;
+
+    // Check for missing instances in ProxySQL
+    const missingInProxySQL: string[] = [];
+    const wrongHostgroup: string[] = [];
+
+    for (const [key, instance] of expectedInstances) {
+      const proxysqlInstance = proxysqlInstances.get(key);
+      if (!proxysqlInstance) {
+        missingInProxySQL.push(`${key} (${instance.role})`);
+      } else {
+        // Check if hostgroup is correct (coerce both to numbers for comparison)
+        const actualHG = Number(proxysqlInstance.hostgroup);
+        const expectedHG = instance.role === 'primary' ? defaultWriterHG : defaultReaderHG;
+
+        // Skip if both are NaN or if they match
+        if (!isNaN(actualHG) && !isNaN(expectedHG) && actualHG !== expectedHG) {
+          wrongHostgroup.push(`${key} is in hg:${actualHG}, expected hg:${expectedHG}`);
+        }
+      }
+    }
+
+    // Check for orphan instances in ProxySQL (not in Orchestrator)
+    const orphanInstances: string[] = [];
+    for (const [key, instance] of proxysqlInstances) {
+      if (!expectedInstances.has(key)) {
+        orphanInstances.push(`${key} (hg:${instance.hostgroup})`);
+      }
+    }
+
+    // Report findings
+    if (missingInProxySQL.length > 0) {
+      results.push({
+        name: 'ProxySQL Sync',
+        severity: 'warning',
+        message: `${missingInProxySQL.length} instance(s) from Orchestrator missing in ProxySQL`,
+        detail: missingInProxySQL.slice(0, 5).join(', ') + (missingInProxySQL.length > 5 ? '...' : ''),
+        fix: 'Sync clusters to ProxySQL with: /clusters sync',
+        fixCommand: '/clusters sync',
+      });
+    }
+
+    if (wrongHostgroup.length > 0) {
+      results.push({
+        name: 'ProxySQL Hostgroups',
+        severity: 'warning',
+        message: `${wrongHostgroup.length} instance(s) in wrong hostgroup`,
+        detail: wrongHostgroup.slice(0, 3).join('; '),
+        fix: 'Re-sync clusters to ProxySQL with: /clusters sync',
+        fixCommand: '/clusters sync',
+      });
+    }
+
+    if (orphanInstances.length > 0) {
+      results.push({
+        name: 'ProxySQL Orphans',
+        severity: 'warning',
+        message: `${orphanInstances.length} instance(s) in ProxySQL not in Orchestrator`,
+        detail: orphanInstances.slice(0, 3).join(', '),
+        fix: 'Remove orphan servers from ProxySQL or register them in Orchestrator',
+      });
+    }
+
+    // All synced properly
+    if (missingInProxySQL.length === 0 && wrongHostgroup.length === 0 && orphanInstances.length === 0 && expectedInstances.size > 0) {
+      results.push({
+        name: 'ProxySQL Sync',
+        severity: 'ok',
+        message: `All ${expectedInstances.size} instances properly synced`,
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    results.push({
+      name: 'ProxySQL Sync',
+      severity: 'warning',
+      message: 'Could not verify ProxySQL sync',
+      detail: message,
+    });
   }
 }
 
