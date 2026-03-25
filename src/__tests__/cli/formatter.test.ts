@@ -3,8 +3,8 @@
  */
 
 // Mock chalk ESM module
-jest.mock('chalk', () => ({
-  default: {
+jest.mock('chalk', () => {
+  const mockChalk = {
     bold: (str: string) => str,
     dim: (str: string) => str,
     cyan: (str: string) => str,
@@ -19,25 +19,25 @@ jest.mock('chalk', () => ({
     bgCyan: (str: string) => str,
     bgGreen: (str: string) => str,
     bgRed: (str: string) => str,
-    hex: () => (str: string) => str,
-    rgb: () => (str: string) => str,
     italic: (str: string) => str,
     underline: (str: string) => str,
-  },
-  bold: (str: string) => str,
-  dim: (str: string) => str,
-  cyan: (str: string) => str,
-  green: (str: string) => str,
-  yellow: (str: string) => str,
-  red: (str: string) => str,
-  blue: (str: string) => str,
-  magenta: (str: string) => str,
-  gray: (str: string) => str,
-  white: (str: string) => str,
-  black: (str: string) => str,
-  italic: (str: string) => str,
-  underline: (str: string) => str,
-}));
+  };
+  // Create a chainable color function
+  const createChainable = () => {
+    const fn = (str: string) => str;
+    Object.assign(fn, mockChalk);
+    return fn;
+  };
+  return {
+    __esModule: true,
+    default: {
+      ...mockChalk,
+      hex: createChainable,
+      rgb: createChainable,
+    },
+    ...mockChalk,
+  };
+});
 
 // Mock cli-table3
 jest.mock('cli-table3', () => {

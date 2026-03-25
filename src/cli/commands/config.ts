@@ -5,7 +5,7 @@
  */
 
 import { Command, CLIContext } from '../registry.js';
-import chalk from 'chalk';
+import { theme } from '../ui/components.js';
 import inquirer from 'inquirer';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -118,7 +118,7 @@ async function showConfig(ctx: CLIContext): Promise<void> {
   console.log('\n' + formatter.section('Application'));
   console.log(formatter.keyValue('Name', settings.appName));
   console.log(formatter.keyValue('Version', settings.appVersion));
-  console.log(formatter.keyValue('Debug', settings.debug ? chalk.yellow('on') : 'off'));
+  console.log(formatter.keyValue('Debug', settings.debug ? theme.warning('on') : 'off'));
 
   // API settings
   console.log('\n' + formatter.section('API'));
@@ -146,7 +146,7 @@ async function showConfig(ctx: CLIContext): Promise<void> {
   // Failover settings
   console.log('\n' + formatter.section('Failover'));
   const autoFailover = settings.failover.autoFailoverEnabled;
-  console.log(formatter.keyValue('Auto', autoFailover ? chalk.green('on') : chalk.red('off')));
+  console.log(formatter.keyValue('Auto', autoFailover ? theme.success('on') : theme.error('off')));
   console.log(formatter.keyValue('Timeout', `${settings.failover.timeoutSeconds}s`));
   console.log(formatter.keyValue('Min Replicas', settings.failover.minReplicasForFailover));
   console.log(formatter.keyValue('Checks', settings.failover.confirmationChecks));
@@ -164,7 +164,7 @@ async function showConfig(ctx: CLIContext): Promise<void> {
   // AI settings
   console.log('\n' + formatter.section('AI Agent'));
   const aiEnabled = settings.ai.enabled;
-  console.log(formatter.keyValue('Enabled', aiEnabled ? chalk.green('yes') : 'no'));
+  console.log(formatter.keyValue('Enabled', aiEnabled ? theme.success('yes') : 'no'));
   console.log(formatter.keyValue('Provider', settings.ai.provider));
   console.log(formatter.keyValue('Max Tokens', settings.ai.maxTokens));
   console.log(formatter.keyValue('Temperature', settings.ai.temperature));
@@ -172,7 +172,7 @@ async function showConfig(ctx: CLIContext): Promise<void> {
   // Config file location
   console.log('\n' + formatter.section('Config File'));
   console.log(formatter.keyValue('Location', CONFIG_FILE));
-  console.log(formatter.keyValue('Exists', fs.existsSync(CONFIG_FILE) ? chalk.green('yes') : chalk.yellow('no')));
+  console.log(formatter.keyValue('Exists', fs.existsSync(CONFIG_FILE) ? theme.success('yes') : theme.warning('no')));
 
   console.log();
 }
@@ -184,7 +184,7 @@ async function initConfig(ctx: CLIContext): Promise<void> {
   const formatter = ctx.formatter;
 
   console.log(formatter.header('Configuration Wizard'));
-  console.log(chalk.gray('This will create a configuration file at ~/.clawsql/config.json\n'));
+  console.log(theme.muted('This will create a configuration file at ~/.clawsql/config.json\n'));
 
   // Load existing config if available
   let existingConfig: Record<string, unknown> = {};
@@ -192,7 +192,7 @@ async function initConfig(ctx: CLIContext): Promise<void> {
     try {
       const content = fs.readFileSync(CONFIG_FILE, 'utf-8');
       existingConfig = JSON.parse(content);
-      console.log(chalk.yellow('Found existing configuration. Press Enter to keep current values.\n'));
+      console.log(theme.warning('Found existing configuration. Press Enter to keep current values.\n'));
     } catch {
       // Ignore parse errors
     }

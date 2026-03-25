@@ -5,7 +5,7 @@
  */
 
 import { Command, CLIContext } from '../registry.js';
-import chalk from 'chalk';
+import { theme, indicators } from '../ui/components.js';
 import { spawn } from 'child_process';
 
 /**
@@ -42,19 +42,19 @@ export const statusCommand: Command = {
     // Runtime
     console.log(formatter.section('Container Runtime'));
     if (status.runtime) {
-      console.log(formatter.keyValue('Runtime', chalk.green(status.runtime)));
+      console.log(formatter.keyValue('Runtime', theme.success(status.runtime)));
     } else {
-      console.log(formatter.keyValue('Runtime', chalk.red('not found')));
+      console.log(formatter.keyValue('Runtime', theme.error('not found')));
     }
 
     // Containers
     console.log(formatter.section('Containers'));
     if (status.containers.length === 0) {
-      console.log(chalk.yellow('  No containers running'));
+      console.log(theme.warning('  No containers running'));
     } else {
       for (const container of status.containers) {
-        const statusColor = container.status === 'running' ? chalk.green : chalk.red;
-        console.log(`  ${statusColor('●')} ${container.name.padEnd(20)} ${statusColor(container.status)}`);
+        const statusColor = container.status === 'running' ? theme.success : theme.error;
+        console.log(`  ${statusColor(indicators.success)} ${container.name.padEnd(20)} ${statusColor(container.status)}`);
       }
     }
 
@@ -70,10 +70,10 @@ export const statusCommand: Command = {
 
     for (const [key, label] of Object.entries(serviceNames)) {
       const serviceStatus = status.services[key as keyof typeof status.services];
-      const statusIcon = serviceStatus.healthy ? chalk.green('●') : chalk.red('○');
+      const statusIcon = serviceStatus.healthy ? theme.success(indicators.success) : theme.error(indicators.error);
       const statusText = serviceStatus.healthy
-        ? chalk.green('healthy')
-        : chalk.red(serviceStatus.error || 'unhealthy');
+        ? theme.success('healthy')
+        : theme.error(serviceStatus.error || 'unhealthy');
       console.log(`  ${statusIcon} ${label.padEnd(20)} ${statusText}`);
     }
 
@@ -81,7 +81,7 @@ export const statusCommand: Command = {
     if (status.clusters.length > 0) {
       console.log(formatter.section('MySQL Clusters'));
       for (const cluster of status.clusters) {
-        const primaryStatus = cluster.primaryHealthy ? chalk.green('●') : chalk.red('○');
+        const primaryStatus = cluster.primaryHealthy ? theme.success(indicators.success) : theme.error(indicators.error);
         console.log(`  ${primaryStatus} ${cluster.name.padEnd(20)} ${cluster.replicas} replica(s)`);
       }
     }

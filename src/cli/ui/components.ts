@@ -9,32 +9,67 @@ import chalk from 'chalk';
 import ora, { Ora } from 'ora';
 
 /**
- * UI Theme colors - VSCode-inspired palette
+ * Nord Theme Colors (https://www.nordtheme.com)
+ * Single source of truth for all CLI colors
+ */
+export const nord = {
+  polarNight: {
+    nord0: '#2E3440',
+    nord1: '#3B4252',
+    nord2: '#434C5E',
+    nord3: '#4C566A',
+  },
+  snowStorm: {
+    nord4: '#D8DEE9',
+    nord5: '#E5E9F0',
+    nord6: '#ECEFF4',
+  },
+  frost: {
+    nord7: '#8FBCBB',
+    nord8: '#88C0D0',
+    nord9: '#81A1C1',
+    nord10: '#5E81AC',
+  },
+  aurora: {
+    nord11: '#BF616A',
+    nord12: '#D08770',
+    nord13: '#EBCB8B',
+    nord14: '#A3BE8C',
+    nord15: '#B48EAD',
+  },
+} as const;
+
+/**
+ * Chalk-based theme for CLI output
+ * Use these functions for consistent colors across the CLI
  */
 export const theme = {
-  primary: chalk.hex('#007ACC'),      // VSCode blue
-  secondary: chalk.hex('#3794FF'),    // Light blue
-  success: chalk.hex('#89D185'),      // VSCode green
-  warning: chalk.hex('#DCDCAA'),      // VSCode yellow
-  error: chalk.hex('#F14C4C'),        // VSCode red
-  info: chalk.hex('#569CD6'),         // VSCode keyword blue
-  muted: chalk.hex('#808080'),        // VSCode comment gray
-  highlight: chalk.hex('#4FC1FF'),    // Bright blue
-  accent: chalk.hex('#4EC9B0'),       // VSCode teal
+  primary: chalk.hex(nord.frost.nord8),      // Cyan
+  secondary: chalk.hex(nord.frost.nord9),    // Blue
+  success: chalk.hex(nord.aurora.nord14),    // Green
+  warning: chalk.hex(nord.aurora.nord13),    // Yellow
+  error: chalk.hex(nord.aurora.nord11),      // Red
+  info: chalk.hex(nord.frost.nord7),         // Teal
+  muted: chalk.hex(nord.polarNight.nord3),   // Muted gray
+  highlight: chalk.hex(nord.snowStorm.nord4), // Bright
+  accent: chalk.hex(nord.aurora.nord15),     // Purple
 };
 
 /**
- * Status indicators - Minimal unicode symbols
+ * Clean status indicators (no emojis)
+ * Use these for consistent icons across the CLI
  */
 export const indicators = {
-  success: '\u2022',    // bullet
-  error: '\u25E6',      // white bullet
-  warning: '\u25C6',    // diamond
-  info: '\u25CB',       // circle
-  arrow: '\u2192',      // arrow
-  bullet: '\u2022',     // bullet
-  circle: '\u25CB',     // circle
-  prompt: '\u276F',     // heavy right angle bracket
+  success: '●',
+  error: '○',
+  warning: '◆',
+  info: '○',
+  arrow: '→',
+  bullet: '●',
+  circle: '○',
+  check: '✓',
+  cross: '✗',
+  prompt: '›',
 };
 
 /**
@@ -316,7 +351,7 @@ export function formatSuggestionsDropdown(
     if (isSelected) {
       // Highlight selected item
       lines.push(
-        theme.primary('❯ ') +
+        theme.primary('› ') +
         theme.primary.bold(name) +
         theme.muted(desc)
       );

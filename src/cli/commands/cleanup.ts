@@ -5,7 +5,7 @@
  */
 
 import { Command, CLIContext } from '../registry.js';
-import chalk from 'chalk';
+import { theme, indicators } from '../ui/components.js';
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -20,14 +20,14 @@ export const cleanupCommand: Command = {
   handler: async (args: string[], ctx: CLIContext) => {
     const force = args.includes('--force');
 
-    console.log(chalk.bold.red('⚠️  WARNING: This will remove all ClawSQL containers and data!'));
+    console.log(theme.error.bold('◆ WARNING: This will remove all ClawSQL containers and data!'));
     console.log();
 
     // Confirm unless --force
     if (!force) {
       const confirmed = await ctx.confirm('Are you sure you want to continue?');
       if (!confirmed) {
-        console.log(chalk.yellow('Cleanup cancelled.'));
+        console.log(theme.warning('Cleanup cancelled.'));
         return;
       }
     }
@@ -35,7 +35,7 @@ export const cleanupCommand: Command = {
     // Detect runtime
     const runtime = await detectRuntime();
     if (!runtime) {
-      console.log(chalk.red('No container runtime found'));
+      console.log(theme.error('No container runtime found'));
       return;
     }
 
@@ -43,26 +43,26 @@ export const cleanupCommand: Command = {
     const projectRoot = findProjectRoot();
 
     // Stop and remove containers
-    console.log(chalk.blue('Stopping containers...'));
+    console.log(theme.secondary('Stopping containers...'));
     await stopContainers(runtime);
 
     // Remove volumes
-    console.log(chalk.blue('Removing volumes...'));
+    console.log(theme.secondary('Removing volumes...'));
     await removeVolumes(runtime);
 
     // Remove images (optional)
-    console.log(chalk.blue('Removing images...'));
+    console.log(theme.secondary('Removing images...'));
     await removeImages(runtime);
 
     // Remove local data directories
     if (projectRoot) {
-      console.log(chalk.blue('Removing local data...'));
+      console.log(theme.secondary('Removing local data...'));
       await removeLocalData(projectRoot);
     }
 
     console.log();
-    console.log(chalk.green('✓ Cleanup complete!'));
-    console.log(chalk.gray('Run "clawsql start" to start fresh.'));
+    console.log(theme.success(`${indicators.check} Cleanup complete!`));
+    console.log(theme.muted('Run "clawsql start" to start fresh.'));
   },
 };
 

@@ -6,7 +6,7 @@
  */
 
 import { Command, CLIContext } from '../registry.js';
-import chalk from 'chalk';
+import { theme, indicators } from '../ui/components.js';
 import { spawn } from 'child_process';
 
 /**
@@ -38,7 +38,7 @@ export const doctorCommand: Command = {
     const shouldFix = args.includes('--fix');
 
     console.log(formatter.header('ClawSQL Doctor'));
-    console.log(chalk.gray('Running diagnostics...\n'));
+    console.log(theme.muted('Running diagnostics...\n'));
 
     const results: DiagnosticResult[] = [];
 
@@ -54,12 +54,12 @@ export const doctorCommand: Command = {
 
     console.log();
     if (errors.length === 0 && warnings.length === 0) {
-      console.log(chalk.green('✓ All systems healthy!'));
+      console.log(theme.success(`${indicators.check} All systems healthy!`));
     } else {
-      console.log(chalk.yellow(`Found ${errors.length} error(s) and ${warnings.length} warning(s)`));
+      console.log(theme.warning(`Found ${errors.length} error(s) and ${warnings.length} warning(s)`));
 
       if (!shouldFix && (errors.length > 0 || warnings.length > 0)) {
-        console.log(chalk.gray('\nSome issues may have automatic fixes available.'));
+        console.log(theme.muted('\nSome issues may have automatic fixes available.'));
       }
     }
   },
@@ -642,7 +642,7 @@ function displayResults(results: DiagnosticResult[]): void {
 
   // Display errors first
   if (errors.length > 0) {
-    console.log(chalk.red.bold('\n❌ Errors:\n'));
+    console.log(theme.error.bold('\n✗ Errors:\n'));
     for (const result of errors) {
       displayResult(result);
     }
@@ -650,7 +650,7 @@ function displayResults(results: DiagnosticResult[]): void {
 
   // Display warnings
   if (warnings.length > 0) {
-    console.log(chalk.yellow.bold('\n⚠️  Warnings:\n'));
+    console.log(theme.warning.bold('\n◆ Warnings:\n'));
     for (const result of warnings) {
       displayResult(result);
     }
@@ -658,7 +658,7 @@ function displayResults(results: DiagnosticResult[]): void {
 
   // Display info
   if (info.length > 0) {
-    console.log(chalk.blue.bold('\nℹ️  Information:\n'));
+    console.log(theme.info.bold('\n○ Information:\n'));
     for (const result of info) {
       displayResult(result);
     }
@@ -666,9 +666,9 @@ function displayResults(results: DiagnosticResult[]): void {
 
   // Display healthy checks
   if (ok.length > 0) {
-    console.log(chalk.green.bold('\n✓ Healthy:\n'));
+    console.log(theme.success.bold('\n✓ Healthy:\n'));
     for (const result of ok) {
-      console.log(chalk.gray(`  ${result.name}: `) + chalk.green(result.message));
+      console.log(theme.muted(`  ${result.name}: `) + theme.success(result.message));
     }
   }
 }
@@ -677,27 +677,35 @@ function displayResults(results: DiagnosticResult[]): void {
  * Display a single diagnostic result
  */
 function displayResult(result: DiagnosticResult): void {
+  const severityStyles = {
+    error: theme.error,
+    warning: theme.warning,
+    ok: theme.success,
+    info: theme.info,
+  };
+
   const severityIcons = {
-    error: chalk.red('✗'),
-    warning: chalk.yellow('!'),
-    ok: chalk.green('✓'),
-    info: chalk.blue('i'),
+    error: theme.error(indicators.cross),
+    warning: theme.warning(indicators.warning),
+    ok: theme.success(indicators.check),
+    info: theme.info(indicators.info),
   };
 
   const icon = severityIcons[result.severity];
+  const nameColor = severityStyles[result.severity];
 
-  console.log(`  ${icon} ${chalk.bold(result.name)}: ${result.message}`);
+  console.log(`  ${icon} ${nameColor.bold(result.name)}: ${result.message}`);
 
   if (result.detail) {
-    console.log(chalk.gray(`      ${result.detail}`));
+    console.log(theme.muted(`      ${result.detail}`));
   }
 
   if (result.fix) {
-    console.log(chalk.cyan(`      Fix: ${result.fix}`));
+    console.log(theme.primary(`      Fix: ${result.fix}`));
   }
 
   if (result.fixCommand) {
-    console.log(chalk.gray(`      Command: ${result.fixCommand}`));
+    console.log(theme.muted(`      Command: ${result.fixCommand}`));
   }
 
   console.log();

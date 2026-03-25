@@ -6,6 +6,7 @@
 
 import Table from 'cli-table3';
 import chalk from 'chalk';
+import { theme, nord } from './ui/components.js';
 
 /**
  * Output format options
@@ -65,7 +66,7 @@ export class Formatter {
       colAligns: columns.map(col => col.align ?? 'left'),
       style: {
         head: [],
-        border: this.colors ? ['gray'] : [],
+        border: this.colors ? [nord.polarNight.nord3] : [],
       },
     });
 
@@ -74,7 +75,7 @@ export class Formatter {
         columns.map(col => {
           const value = row[col.key];
           if (value === null || value === undefined) {
-            return this.colors ? chalk.gray('-') : '-';
+            return this.colors ? theme.muted('-') : '-';
           }
           return String(value);
         })
@@ -95,28 +96,28 @@ export class Formatter {
    * Format a success message
    */
   success(message: string): string {
-    return this.colors ? chalk.green('✓ ') + message : `✓ ${message}`;
+    return this.colors ? theme.success('✓ ') + message : `✓ ${message}`;
   }
 
   /**
    * Format an error message
    */
   error(message: string): string {
-    return this.colors ? chalk.red('✗ ') + message : `✗ ${message}`;
+    return this.colors ? theme.error('✗ ') + message : `✗ ${message}`;
   }
 
   /**
    * Format a warning message
    */
   warning(message: string): string {
-    return this.colors ? chalk.yellow('⚠ ') + message : `⚠ ${message}`;
+    return this.colors ? theme.warning('◆ ') + message : `◆ ${message}`;
   }
 
   /**
    * Format an info message
    */
   info(message: string): string {
-    return this.colors ? chalk.blue('ℹ ') + message : `ℹ ${message}`;
+    return this.colors ? theme.info('○ ') + message : `○ ${message}`;
   }
 
   /**
@@ -128,7 +129,7 @@ export class Formatter {
     }
     const line = '─'.repeat(Math.max(title.length + 4, 24));
     return this.colors
-      ? `${chalk.bold.blue(line)}\n  ${chalk.bold(title)}\n${chalk.bold.blue(line)}`
+      ? `${theme.primary.bold(line)}\n  ${chalk.bold(title)}\n${theme.primary.bold(line)}`
       : `${line}\n  ${title}\n${line}`;
   }
 
@@ -137,7 +138,7 @@ export class Formatter {
    */
   section(title: string): string {
     return this.colors
-      ? chalk.bold.cyan(`[${title}]`)
+      ? theme.primary.bold(`[${title}]`)
       : `[${title}]`;
   }
 
@@ -146,10 +147,10 @@ export class Formatter {
    */
   keyValue(key: string, value: unknown): string {
     const displayValue = value === null || value === undefined
-      ? (this.colors ? chalk.gray('(not set)') : '(not set)')
+      ? (this.colors ? theme.muted('(not set)') : '(not set)')
       : String(value);
     return this.colors
-      ? `  ${chalk.gray(key)}: ${displayValue}`
+      ? `  ${theme.muted(key)}: ${displayValue}`
       : `  ${key}: ${displayValue}`;
   }
 
@@ -162,9 +163,9 @@ export class Formatter {
 
     for (const node of nodes) {
       const icon = node.type === 'primary'
-        ? (this.colors ? chalk.green('●') : '●')
+        ? (this.colors ? theme.success('●') : '●')
         : node.type === 'replica'
-          ? (this.colors ? chalk.blue('○') : '○')
+          ? (this.colors ? theme.primary('○') : '○')
           : '·';
 
       const label = this.colors && node.type === 'primary'
@@ -175,10 +176,10 @@ export class Formatter {
 
       if (node.status) {
         const statusColor = node.status === 'online'
-          ? chalk.green
+          ? theme.success
           : node.status === 'offline'
-            ? chalk.red
-            : chalk.yellow;
+            ? theme.error
+            : theme.warning;
         line += this.colors
           ? ` ${statusColor(`[${node.status}]`)}`
           : ` [${node.status}]`;
@@ -186,7 +187,7 @@ export class Formatter {
 
       if (node.extra) {
         line += this.colors
-          ? chalk.gray(` (${node.extra})`)
+          ? theme.muted(` (${node.extra})`)
           : ` (${node.extra})`;
       }
 
@@ -208,20 +209,20 @@ export class Formatter {
 
     // Header
     const headerLine = '─'.repeat(50);
-    lines.push(this.colors ? chalk.bold.blue(headerLine) : headerLine);
+    lines.push(this.colors ? theme.primary.bold(headerLine) : headerLine);
     lines.push(this.colors ? chalk.bold(`  Cluster: ${cluster.displayName}`) : `  Cluster: ${cluster.displayName}`);
-    lines.push(this.colors ? chalk.bold.blue(headerLine) : headerLine);
+    lines.push(this.colors ? theme.primary.bold(headerLine) : headerLine);
 
     // Endpoint and hostgroups
     if (cluster.endpoint) {
       lines.push(this.colors
-        ? `  ${chalk.gray('Endpoint:')} ${chalk.cyan(`${cluster.endpoint.host}:${cluster.endpoint.port}`)}`
+        ? `  ${theme.muted('Endpoint:')} ${theme.primary(`${cluster.endpoint.host}:${cluster.endpoint.port}`)}`
         : `  Endpoint: ${cluster.endpoint.host}:${cluster.endpoint.port}`);
     }
 
     if (cluster.hostgroups) {
       lines.push(this.colors
-        ? `  ${chalk.gray('Hostgroups:')} ${chalk.bold.green('RW')}=${chalk.yellow(cluster.hostgroups.writer.toString())}, ${chalk.cyan('RO')}=${chalk.yellow(cluster.hostgroups.reader.toString())}`
+        ? `  ${theme.muted('Hostgroups:')} ${theme.success.bold('RW')}=${theme.warning(cluster.hostgroups.writer.toString())}, ${theme.primary('RO')}=${theme.warning(cluster.hostgroups.reader.toString())}`
         : `  Hostgroups: RW=${cluster.hostgroups.writer}, RO=${cluster.hostgroups.reader}`);
     }
 
@@ -230,8 +231,8 @@ export class Formatter {
     // Sync warnings (show prominently before health)
     if (cluster.syncWarnings && cluster.syncWarnings.length > 0) {
       lines.push(this.colors
-        ? chalk.bold.yellow('  ⚠ SYNC WARNINGS:')
-        : '  ⚠ SYNC WARNINGS:');
+        ? theme.warning.bold('  ◆ SYNC WARNINGS:')
+        : '  ◆ SYNC WARNINGS:');
       for (const warning of cluster.syncWarnings) {
         const icon = warning.type === 'missing_in_proxysql'
           ? '○'
@@ -239,23 +240,23 @@ export class Formatter {
             ? '↻'
             : '?';
         lines.push(this.colors
-          ? `    ${chalk.yellow(icon)} ${chalk.gray(warning.message)}`
+          ? `    ${theme.warning(icon)} ${theme.muted(warning.message)}`
           : `    ${icon} ${warning.message}`);
       }
       lines.push(this.colors
-        ? `  ${chalk.blue('ℹ')} ${chalk.gray('Run /clusters sync to reconcile')}`
-        : '  ℹ Run /clusters sync to reconcile');
+        ? `  ${theme.info('○')} ${theme.muted('Run /clusters sync to reconcile')}`
+        : '  ○ Run /clusters sync to reconcile');
       lines.push('');
     }
 
     // Health status
     const healthIcon = cluster.health === 'healthy'
-      ? (this.colors ? chalk.green('✓') : '✓')
+      ? (this.colors ? theme.success('✓') : '✓')
       : cluster.health === 'degraded'
-        ? (this.colors ? chalk.yellow('⚠') : '⚠')
-        : (this.colors ? chalk.red('✗') : '✗');
+        ? (this.colors ? theme.warning('◆') : '◆')
+        : (this.colors ? theme.error('✗') : '✗');
     lines.push(this.colors
-      ? `  ${healthIcon} ${chalk.gray('Health:')} ${cluster.health}`
+      ? `  ${healthIcon} ${theme.muted('Health:')} ${cluster.health}`
       : `  ${healthIcon} Health: ${cluster.health}`);
 
     lines.push('');
@@ -266,7 +267,7 @@ export class Formatter {
       lines.push(this.formatInstanceLine(cluster.primary, 'primary', cluster.hostgroups));
     } else {
       lines.push(this.colors
-        ? chalk.yellow('  No primary found')
+        ? theme.warning('  No primary found')
         : '  No primary found');
     }
 
@@ -287,14 +288,14 @@ export class Formatter {
    */
   private formatInstanceLine(instance: ClusterInstanceInfo, type: 'primary' | 'replica', hostgroups?: { writer: number; reader: number }): string {
     const icon = type === 'primary'
-      ? (this.colors ? chalk.green('●') : '●')
-      : (this.colors ? chalk.blue('○') : '○');
+      ? (this.colors ? theme.success('●') : '●')
+      : (this.colors ? theme.primary('○') : '○');
 
     const statusColor = instance.state === 'online'
-      ? chalk.green
+      ? theme.success
       : instance.state === 'offline'
-        ? chalk.red
-        : chalk.yellow;
+        ? theme.error
+        : theme.warning;
 
     const hostPort = `${instance.host}:${instance.port}`;
     const status = instance.state;
@@ -305,9 +306,9 @@ export class Formatter {
     // Determine RW/RO label based on hostgroup
     if (instance.hostgroup !== undefined && hostgroups) {
       const rwLabel = instance.hostgroup === hostgroups.writer
-        ? (this.colors ? chalk.bold.green('RW') : 'RW')
+        ? (this.colors ? theme.success.bold('RW') : 'RW')
         : instance.hostgroup === hostgroups.reader
-          ? (this.colors ? chalk.cyan('RO') : 'RO')
+          ? (this.colors ? theme.primary('RO') : 'RO')
           : `hg:${instance.hostgroup}`;
       infoParts.push(rwLabel);
     } else if (instance.hostgroup !== undefined) {
@@ -316,8 +317,8 @@ export class Formatter {
 
     if (instance.proxysqlStatus) {
       const psColor = instance.proxysqlStatus === 'ONLINE'
-        ? chalk.green
-        : chalk.yellow;
+        ? theme.success
+        : theme.warning;
       infoParts.push(this.colors
         ? psColor(instance.proxysqlStatus)
         : instance.proxysqlStatus);
@@ -332,7 +333,7 @@ export class Formatter {
     }
 
     const infoStr = infoParts.length > 0
-      ? (this.colors ? chalk.gray(`(${infoParts.join(', ')})`) : `(${infoParts.join(', ')})`)
+      ? (this.colors ? theme.muted(`(${infoParts.join(', ')})`) : `(${infoParts.join(', ')})`)
       : '';
 
     const line = `    ${icon} ${hostPort} ${statusColor(`[${status}]`)} ${infoStr}`;
@@ -343,7 +344,7 @@ export class Formatter {
     if (instance.serverId) details.push(`id:${instance.serverId}`);
 
     if (details.length > 0 && type === 'primary') {
-      return line + '\n' + (this.colors ? chalk.gray(`        ${details.join(', ')}`) : `        ${details.join(', ')}`);
+      return line + '\n' + (this.colors ? theme.muted(`        ${details.join(', ')}`) : `        ${details.join(', ')}`);
     }
 
     return line;
@@ -360,8 +361,8 @@ export class Formatter {
         .replace(/\*(.+?)\*/g, '$1')
         .replace(/`(.+?)`/g, '$1')
         .replace(/^#+\s*/gm, '')
-        .replace(/^(\s*)- /gm, '$1• ')
-        .replace(/^(\s*)\d+\. /gm, '$1◦ ');
+        .replace(/^(\s*)- /gm, '$1● ')
+        .replace(/^(\s*)\d+\. /gm, '$1○ ');
     }
 
     return text
@@ -370,15 +371,15 @@ export class Formatter {
       // Italic: *text*
       .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, (_, p1) => chalk.italic(p1))
       // Inline code: `code`
-      .replace(/`([^`]+)`/g, (_, p1) => chalk.cyan(p1))
+      .replace(/`([^`]+)`/g, (_, p1) => theme.primary(p1))
       // Headers (must be at start of line)
-      .replace(/^### (.+)$/gm, (_, p1) => '\n' + chalk.bold.blue(p1))
+      .replace(/^### (.+)$/gm, (_, p1) => '\n' + theme.secondary.bold(p1))
       .replace(/^## (.+)$/gm, (_, p1) => '\n' + chalk.bold.underline(p1))
-      .replace(/^# (.+)$/gm, (_, p1) => '\n' + chalk.bold.underline.blue(p1) + '\n')
+      .replace(/^# (.+)$/gm, (_, p1) => '\n' + theme.secondary.bold.underline(p1) + '\n')
       // Bullet points (including indented)
-      .replace(/^(\s*)- (.+)$/gm, (_, indent, p1) => `${indent}${chalk.gray('•')} ${p1}`)
+      .replace(/^(\s*)- (.+)$/gm, (_, indent, p1) => `${indent}${theme.muted('●')} ${p1}`)
       // Numbered lists (including indented)
-      .replace(/^(\s*)\d+\. (.+)$/gm, (_, indent, p1) => `${indent}${chalk.gray('◦')} ${p1}`);
+      .replace(/^(\s*)\d+\. (.+)$/gm, (_, indent, p1) => `${indent}${theme.muted('○')} ${p1}`);
   }
 
   /**
@@ -419,7 +420,7 @@ export class StreamingMarkdownProcessor {
     // Process `code` patterns
     processed = processed.replace(/`([^`]+)`/g, (_, content) => {
       hasMatch = true;
-      return chalk.cyan(content);
+      return theme.primary(content);
     });
 
     if (hasMatch) {

@@ -5,7 +5,7 @@
  */
 
 import { Command, CLIContext } from '../registry.js';
-import chalk from 'chalk';
+import { theme } from '../ui/components.js';
 
 /**
  * Cron command
@@ -78,7 +78,7 @@ async function listCronJobs(ctx: CLIContext): Promise<void> {
               jobs.map((job: { name: string; schedule: string; enabled: boolean }) => ({
                 name: job.name,
                 schedule: job.schedule,
-                status: job.enabled ? chalk.green('enabled') : chalk.red('disabled'),
+                status: job.enabled ? theme.success('enabled') : theme.error('disabled'),
               })),
               [
                 { key: 'name', header: 'Name', width: 30 },

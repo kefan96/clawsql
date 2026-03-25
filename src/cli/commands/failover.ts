@@ -9,6 +9,7 @@
  */
 
 import { Command, CLIContext } from '../registry.js';
+import { theme } from '../ui/components.js';
 import chalk from 'chalk';
 
 /**
@@ -67,7 +68,7 @@ async function showStatus(ctx: CLIContext): Promise<void> {
   console.log(formatter.header('Failover Configuration'));
 
   const config = [
-    { key: 'Auto Failover Enabled', value: settings.failover.autoFailoverEnabled ? chalk.green('Yes') : chalk.red('No') },
+    { key: 'Auto Failover Enabled', value: settings.failover.autoFailoverEnabled ? theme.success('Yes') : theme.error('No') },
     { key: 'Timeout', value: `${settings.failover.timeoutSeconds}s` },
     { key: 'Min Replicas Required', value: String(settings.failover.minReplicasForFailover) },
     { key: 'Confirmation Checks', value: String(settings.failover.confirmationChecks) },
