@@ -202,15 +202,16 @@ describe('OrchestratorClient', () => {
 
   describe('discoverInstance', () => {
     it('should return true on successful discovery', async () => {
-      mockAxiosInstance.post.mockResolvedValue({});
+      mockAxiosInstance.get.mockResolvedValue({});
 
       const result = await client.discoverInstance('mysql-primary', 3306);
 
       expect(result).toBe(true);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/discover/mysql-primary/3306');
     });
 
     it('should return false on failure', async () => {
-      mockAxiosInstance.post.mockRejectedValue(new Error('Failed'));
+      mockAxiosInstance.get.mockRejectedValue(new Error('Failed'));
 
       const result = await client.discoverInstance('mysql-primary', 3306);
 

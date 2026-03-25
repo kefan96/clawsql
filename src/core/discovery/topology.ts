@@ -197,7 +197,8 @@ export class OrchestratorClient {
    */
   async discoverInstance(host: string, port: number = 3306): Promise<boolean> {
     try {
-      await this.client.post(`/api/discover/${host}/${port}`);
+      // Orchestrator uses GET for discover, not POST
+      await this.client.get(`/api/discover/${host}/${port}`);
       return true;
     } catch (error) {
       logger.error({ error, host, port }, 'Failed to discover instance');
@@ -210,7 +211,8 @@ export class OrchestratorClient {
    */
   async forgetInstance(host: string, port: number = 3306): Promise<boolean> {
     try {
-      await this.client.post(`/api/forget/${host}/${port}`);
+      // Orchestrator uses GET for forget, not POST
+      await this.client.get(`/api/forget/${host}/${port}`);
       return true;
     } catch (error) {
       logger.error({ error, host, port }, 'Failed to forget instance');

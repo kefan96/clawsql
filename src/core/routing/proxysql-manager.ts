@@ -100,13 +100,37 @@ export class ProxySQLManager {
 
   /**
    * Execute a query on ProxySQL admin interface
+   * Note: ProxySQL admin doesn't support prepared statements, so we use query() instead
    */
   private async execute(sql: string, params: unknown[] = []): Promise<unknown[]> {
     if (!this.connection) {
       await this.connect();
     }
+
+    // ProxySQL admin doesn't support prepared statements
+    // Use query() with interpolated values
+    let querySql = sql;
+    if (params.length > 0) {
+      // Simple parameter interpolation for ProxySQL
+      let paramIndex = 0;
+      querySql = sql.replace(/\?/g, () => {
+        const value = params[paramIndex++];
+        if (value === null || value === undefined) {
+          return 'NULL';
+        }
+        if (typeof value === 'number') {
+          return String(value);
+        }
+        if (typeof value === 'boolean') {
+          return value ? '1' : '0';
+        }
+        // Escape single quotes for string values
+        return `'${String(value).replace(/'/g, "''")}'`;
+      });
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [rows] = await this.connection!.execute(sql, params as any[]);
+    const [rows] = await this.connection!.query(querySql);
     return rows as unknown[];
   }
 
@@ -332,11 +356,19 @@ export class ProxySQLManager {
       }
 
       // Setup replication hostgroups for automatic failover detection
+      // ProxySQL doesn't support ON DUPLICATE KEY UPDATE, use REPLACE or delete+insert
+      try {
+        await this.execute(
+          `DELETE FROM mysql_replication_hostgroups WHERE writer_hostgroup = ?`,
+          [writerHostgroup]
+        );
+      } catch {
+        // Ignore if doesn't exist
+      }
       await this.execute(
         `INSERT INTO mysql_replication_hostgroups
          (writer_hostgroup, reader_hostgroup, comment)
-         VALUES (?, ?, ?)
-         ON DUPLICATE KEY UPDATE comment = VALUES(comment)`,
+         VALUES (?, ?, ?)`,
         [writerHostgroup, readerHostgroup, `Cluster: ${cluster.name}`]
       );
 

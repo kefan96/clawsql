@@ -18,6 +18,11 @@ import configCommand from './commands/config.js';
 import sqlCommand from './commands/sql.js';
 import cronCommand from './commands/cron.js';
 import notifyCommand from './commands/notify.js';
+import startCommand from './commands/start.js';
+import stopCommand from './commands/stop.js';
+import statusCommand from './commands/status.js';
+import cleanupCommand from './commands/cleanup.js';
+import doctorCommand from './commands/doctor.js';
 
 /**
  * Register all built-in commands
@@ -33,6 +38,11 @@ function registerBuiltinCommands(): void {
   registerCommand(sqlCommand);
   registerCommand(cronCommand);
   registerCommand(notifyCommand);
+  registerCommand(startCommand);
+  registerCommand(stopCommand);
+  registerCommand(statusCommand);
+  registerCommand(cleanupCommand);
+  registerCommand(doctorCommand);
 }
 
 /**

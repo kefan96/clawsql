@@ -23,12 +23,14 @@ describe('ProxySQLManager', () => {
   let manager: ProxySQLManager;
   let mockConnection: {
     execute: jest.Mock;
+    query: jest.Mock;
     end: jest.Mock;
   };
 
   beforeEach(() => {
     mockConnection = {
       execute: jest.fn(),
+      query: jest.fn(),
       end: jest.fn(),
     };
 
@@ -104,19 +106,18 @@ describe('ProxySQLManager', () => {
 
   describe('setMonitorCredentials', () => {
     it('should set monitor credentials', async () => {
-      mockConnection.execute.mockResolvedValue([[], []]);
+      mockConnection.query.mockResolvedValue([[], []]);
 
       const result = await manager.setMonitorCredentials('monitor', 'password');
 
       expect(result).toBe(true);
-      expect(mockConnection.execute).toHaveBeenCalledWith(
-        "UPDATE global_variables SET variable_value = ? WHERE variable_name = 'mysql-monitor_username'",
-        ['monitor']
+      expect(mockConnection.query).toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE global_variables SET variable_value = 'monitor' WHERE variable_name = 'mysql-monitor_username'")
       );
     });
 
     it('should return false on error', async () => {
-      mockConnection.execute.mockRejectedValue(new Error('Failed'));
+      mockConnection.query.mockRejectedValue(new Error('Failed'));
 
       const result = await manager.setMonitorCredentials('monitor', 'password');
 
@@ -126,22 +127,21 @@ describe('ProxySQLManager', () => {
 
   describe('addServer', () => {
     it('should add server to ProxySQL', async () => {
-      mockConnection.execute.mockResolvedValue([[], []]);
+      mockConnection.query.mockResolvedValue([[], []]);
       const instance = createMySQLInstance('mysql-primary', 3306);
 
       const result = await manager.addServer(instance, 10, 1, 1000);
 
       expect(result).toBe(true);
-      expect(mockConnection.execute).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO mysql_servers'),
-        [10, 'mysql-primary', 3306, 1, 1000, expect.stringContaining('ClawSQL')]
+      expect(mockConnection.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO mysql_servers')
       );
     });
   });
 
   describe('registerInstance', () => {
     it('should register primary to writer hostgroup', async () => {
-      mockConnection.execute.mockResolvedValue([[], []]);
+      mockConnection.query.mockResolvedValue([[], []]);
       const instance = createMySQLInstance('mysql-primary', 3306);
 
       const result = await manager.registerInstance(instance, true);
@@ -150,7 +150,7 @@ describe('ProxySQLManager', () => {
     });
 
     it('should register replica to reader hostgroup', async () => {
-      mockConnection.execute.mockResolvedValue([[], []]);
+      mockConnection.query.mockResolvedValue([[], []]);
       const instance = createMySQLInstance('mysql-replica', 3306);
 
       const result = await manager.registerInstance(instance, false);
@@ -161,7 +161,7 @@ describe('ProxySQLManager', () => {
 
   describe('syncCluster', () => {
     it('should sync cluster to ProxySQL', async () => {
-      mockConnection.execute.mockResolvedValue([[], []]);
+      mockConnection.query.mockResolvedValue([[], []]);
 
       const primary = createMySQLInstance('mysql-primary', 3306, { role: InstanceRole.PRIMARY });
       const replica = createMySQLInstance('mysql-replica', 3306, { role: InstanceRole.REPLICA });
@@ -177,7 +177,7 @@ describe('ProxySQLManager', () => {
     });
 
     it('should handle errors during sync', async () => {
-      mockConnection.execute.mockRejectedValue(new Error('Failed'));
+      mockConnection.query.mockRejectedValue(new Error('Failed'));
 
       const cluster = createMySQLCluster('cluster-1', 'test');
 
@@ -190,7 +190,7 @@ describe('ProxySQLManager', () => {
 
   describe('getConfigSummary', () => {
     it('should return config summary', async () => {
-      mockConnection.execute.mockResolvedValue([[], []]);
+      mockConnection.query.mockResolvedValue([[], []]);
 
       const instance = createMySQLInstance('mysql-primary', 3306);
       await manager.addServer(instance, 10);

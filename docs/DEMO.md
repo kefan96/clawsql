@@ -4,9 +4,21 @@ This guide shows how to use ClawSQL with a demo MySQL cluster for testing and ev
 
 ## Quick Start
 
+### Using start.sh
+
 ```bash
 # Start with demo MySQL cluster (primary + 2 replicas)
 ./start.sh --demo
+```
+
+### Using CLI
+
+```bash
+# Build the project
+npm run build
+
+# Start with demo mode
+node dist/bin/clawsql.js -c "/start --demo"
 ```
 
 This starts:
@@ -29,6 +41,27 @@ This starts:
 | Replica 2 | localhost:3308 | root/rootpassword |
 
 ## Demo Scenarios
+
+### 0. Using the CLI
+
+The ClawSQL CLI provides an interactive way to manage your clusters:
+
+```bash
+# Check platform status
+node dist/bin/clawsql.js -c "/status"
+
+# Run diagnostics
+node dist/bin/clawsql.js -c "/doctor"
+
+# List discovered instances
+node dist/bin/clawsql.js -c "/instances list"
+
+# View cluster topology
+node dist/bin/clawsql.js -c "/clusters topology"
+
+# Sync cluster to ProxySQL
+node dist/bin/clawsql.js -c "/clusters sync"
+```
 
 ### 1. Instance Discovery
 

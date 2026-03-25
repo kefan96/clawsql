@@ -78,7 +78,6 @@ services:
 
   # =============================================================================
   # ProxySQL - MySQL Proxy with Routing
-  # Starts with demo cluster configuration
   # =============================================================================
   proxysql:
     image: proxysql/proxysql:latest
@@ -90,7 +89,6 @@ services:
     volumes:
       - ./docker/proxysql/proxysql.cnf:/etc/proxysql.cnf
       - ./docker/proxysql/entrypoint.sh:/entrypoint.sh:ro
-      - ./docker/proxysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - proxysql-data:/var/lib/proxysql
     entrypoint: ["/bin/bash", "/entrypoint.sh"]
     networks:
