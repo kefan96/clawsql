@@ -84,6 +84,7 @@ export interface LLMProvider {
     options?: {
       maxTokens?: number;
       temperature?: number;
+      signal?: AbortSignal;
     }
   ): Promise<ChatResponse>;
 }

@@ -67,7 +67,7 @@ export class OpenAIProvider implements LLMProvider {
   async chat(
     messages: ChatMessage[],
     tools: AgentTool[],
-    options?: { maxTokens?: number; temperature?: number }
+    options?: { maxTokens?: number; temperature?: number; signal?: AbortSignal }
   ): Promise<ChatResponse> {
     if (!this.apiKey) {
       throw new Error('OPENAI_API_KEY not configured. Set the environment variable to enable AI features.');
@@ -106,6 +106,7 @@ export class OpenAIProvider implements LLMProvider {
         messages: openaiMessages,
         tools: openaiTools.length > 0 ? openaiTools : undefined,
       }),
+      signal: options?.signal,
     });
 
     if (!response.ok) {

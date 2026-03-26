@@ -61,7 +61,7 @@ export class AnthropicProvider implements LLMProvider {
   async chat(
     messages: ChatMessage[],
     tools: AgentTool[],
-    options?: { maxTokens?: number; temperature?: number }
+    options?: { maxTokens?: number; temperature?: number; signal?: AbortSignal }
   ): Promise<ChatResponse> {
     if (!this.apiKey) {
       throw new Error('ANTHROPIC_API_KEY not configured. Set the environment variable to enable AI features.');
@@ -108,6 +108,7 @@ export class AnthropicProvider implements LLMProvider {
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
       }),
+      signal: options?.signal,
     });
 
     if (!response.ok) {

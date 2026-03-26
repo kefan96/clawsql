@@ -109,8 +109,9 @@ export class AIAgent {
    * Process a natural language input
    * @param input The user's natural language input
    * @param onChunk Optional callback for streaming output chunks
+   * @param signal Optional AbortSignal to cancel the operation
    */
-  async process(input: string, onChunk?: StreamCallback): Promise<string> {
+  async process(input: string, onChunk?: StreamCallback, signal?: AbortSignal): Promise<string> {
     // Try OpenClaw first if configured
     if (this.config.provider === 'openclaw') {
       try {
@@ -125,12 +126,16 @@ export class AIAgent {
 
           // Use streaming if callback provided
           if (onChunk) {
-            return await sendToOpenClawStream(`${contextPrompt}\n\nUser query: ${input}`, onChunk);
+            return await sendToOpenClawStream(`${contextPrompt}\n\nUser query: ${input}`, onChunk, { signal });
           } else {
-            return await sendToOpenClaw(`${contextPrompt}\n\nUser query: ${input}`);
+            return await sendToOpenClaw(`${contextPrompt}\n\nUser query: ${input}`, { signal });
           }
         }
       } catch (error) {
+        // Check if it was aborted
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw error;
+        }
         // Fall through to direct LLM
         const msg = error instanceof Error ? error.message : String(error);
         console.error('OpenClaw not available, falling back to direct LLM:', msg);
@@ -142,13 +147,13 @@ export class AIAgent {
       return 'AI features are not configured. Install OpenClaw (recommended) or set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable.';
     }
 
-    return this.processWithLLM(input);
+    return this.processWithLLM(input, signal);
   }
 
   /**
    * Process using direct LLM call
    */
-  private async processWithLLM(input: string): Promise<string> {
+  private async processWithLLM(input: string, signal?: AbortSignal): Promise<string> {
     // Add user message to history
     this.conversationHistory.push({
       role: 'user',
@@ -157,7 +162,7 @@ export class AIAgent {
 
     try {
       let iteration = 0;
-      let response = await this.sendChat();
+      let response = await this.sendChat(signal);
 
       // Handle tool use loop
       while (response.toolUse && iteration < this.config.maxIterations) {
@@ -186,7 +191,7 @@ export class AIAgent {
         }
 
         // Get next response
-        response = await this.sendChat();
+        response = await this.sendChat(signal);
       }
 
       // Add final assistant response to history
@@ -199,6 +204,10 @@ export class AIAgent {
 
       return response.content || 'No response generated.';
     } catch (error) {
+      // Re-throw abort errors
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       return `Error: ${message}`;
     }
@@ -227,14 +236,15 @@ NEVER say "I cannot" or make excuses. Execute the command. If it fails, show the
   /**
    * Send a chat request to the LLM
    */
-  private async sendChat(): Promise<{ content: string; toolUse?: ToolUseRequest[] }> {
+  private async sendChat(signal?: AbortSignal): Promise<{ content: string; toolUse?: ToolUseRequest[] }> {
     if (!this.provider) {
       throw new Error('No LLM provider configured');
     }
 
     const response = await this.provider.chat(
       [{ role: 'system', content: SYSTEM_PROMPT }, ...this.conversationHistory],
-      this.tools
+      this.tools,
+      { signal }
     );
 
     return {

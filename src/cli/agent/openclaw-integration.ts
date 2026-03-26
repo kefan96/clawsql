@@ -58,7 +58,7 @@ export async function isOpenClawAvailable(): Promise<boolean> {
  */
 export async function sendToOpenClaw(
   message: string,
-  options?: OpenClawOptions
+  options?: OpenClawOptions & { signal?: AbortSignal }
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // Use a fixed session ID for ClawSQL interactions
@@ -80,6 +80,19 @@ export async function sendToOpenClaw(
     let stdout = '';
     let stderr = '';
 
+    // Handle abort signal
+    const abortHandler = () => {
+      proc.kill('SIGTERM');
+      reject(new DOMException('The operation was aborted', 'AbortError'));
+    };
+
+    if (options?.signal) {
+      options.signal.addEventListener('abort', abortHandler);
+      proc.on('close', () => {
+        options.signal!.removeEventListener('abort', abortHandler);
+      });
+    }
+
     proc.stdout?.on('data', (data) => {
       stdout += data.toString();
     });
@@ -89,14 +102,20 @@ export async function sendToOpenClaw(
     });
 
     proc.on('close', (code) => {
+      if (options?.signal) {
+        options.signal.removeEventListener('abort', abortHandler);
+      }
       if (code === 0) {
         resolve(stdout.trim());
-      } else {
+      } else if (code !== null) {
         reject(new Error(`OpenClaw agent failed: ${stderr || stdout}`));
       }
     });
 
     proc.on('error', (err) => {
+      if (options?.signal) {
+        options.signal.removeEventListener('abort', abortHandler);
+      }
       reject(new Error(`Failed to run openclaw: ${err.message}`));
     });
   });
@@ -113,7 +132,7 @@ export async function sendToOpenClaw(
 export async function sendToOpenClawStream(
   message: string,
   onChunk: (chunk: string) => void,
-  options?: OpenClawOptions
+  options?: OpenClawOptions & { signal?: AbortSignal }
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // Use a fixed session ID for ClawSQL interactions
@@ -135,6 +154,19 @@ export async function sendToOpenClawStream(
     let fullOutput = '';
     let stderr = '';
 
+    // Handle abort signal
+    const abortHandler = () => {
+      proc.kill('SIGTERM');
+      reject(new DOMException('The operation was aborted', 'AbortError'));
+    };
+
+    if (options?.signal) {
+      options.signal.addEventListener('abort', abortHandler);
+      proc.on('close', () => {
+        options.signal!.removeEventListener('abort', abortHandler);
+      });
+    }
+
     // Stream stdout chunks immediately
     proc.stdout?.on('data', (data) => {
       const chunk = data.toString();
@@ -147,14 +179,20 @@ export async function sendToOpenClawStream(
     });
 
     proc.on('close', (code) => {
+      if (options?.signal) {
+        options.signal.removeEventListener('abort', abortHandler);
+      }
       if (code === 0) {
         resolve(fullOutput.trim());
-      } else {
+      } else if (code !== null) {
         reject(new Error(`OpenClaw agent failed: ${stderr || fullOutput}`));
       }
     });
 
     proc.on('error', (err) => {
+      if (options?.signal) {
+        options.signal.removeEventListener('abort', abortHandler);
+      }
       reject(new Error(`Failed to run openclaw: ${err.message}`));
     });
   });

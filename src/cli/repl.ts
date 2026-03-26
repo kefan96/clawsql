@@ -215,6 +215,11 @@ export class REPL {
     const processor = new StreamingMarkdownProcessor();
     let gotFirstChunk = false;
     let spinnerInterval: NodeJS.Timeout | null = null;
+    const startTime = Date.now();
+
+    // AbortController for cancelling the AI request
+    const abortController = new AbortController();
+    let wasAborted = false;
 
     // Start thinking spinner
     const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -252,6 +257,31 @@ export class REPL {
       if (frameIndex % 20 === 0) msgIndex++; // Change message every ~2s
     }, 100);
 
+    // Set up ESC key listener to abort AI thinking
+    const escListener = (data: string) => {
+      if (data === '\x1B') {
+        wasAborted = true;
+        abortController.abort();
+
+        // Clean up spinner
+        if (spinnerInterval) {
+          clearInterval(spinnerInterval);
+          spinnerInterval = null;
+        }
+
+        // Show stopped message with elapsed time
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        process.stdout.write(`\r\x1b[K⏹ Stopped (${elapsed}s)\n\n`);
+      }
+    };
+
+    // Enable raw mode temporarily to catch ESC
+    const wasRaw = process.stdin.isRaw;
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
+    }
+    process.stdin.on('data', escListener);
+
     try {
       await this.agent!.process(input, (chunk: string) => {
         // Stop spinner on first chunk
@@ -271,7 +301,7 @@ export class REPL {
         } else if (text) {
           process.stdout.write(text);
         }
-      });
+      }, abortController.signal);
 
       // Make sure spinner is stopped
       if (spinnerInterval) {
@@ -279,17 +309,31 @@ export class REPL {
         process.stdout.write('\r\x1b[K');
       }
 
-      const remaining = processor.flush();
-      if (remaining) process.stdout.write(remaining);
+      // Don't show remaining output if aborted
+      if (!wasAborted) {
+        const remaining = processor.flush();
+        if (remaining) process.stdout.write(remaining);
 
-      process.stdout.write('\n\n');
+        process.stdout.write('\n\n');
+      }
     } catch (error) {
+      // Clean up spinner
       if (spinnerInterval) {
         clearInterval(spinnerInterval);
         process.stdout.write('\r\x1b[K');
       }
-      const message = error instanceof Error ? error.message : String(error);
-      console.log(this.context.formatter.error(`AI error: ${message}`));
+
+      // Don't show error if aborted (already shown by ESC handler)
+      if (!wasAborted) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.log(this.context.formatter.error(`AI error: ${message}`));
+      }
+    } finally {
+      // Clean up ESC listener and restore raw mode
+      process.stdin.off('data', escListener);
+      if (process.stdin.isTTY && wasRaw !== undefined) {
+        process.stdin.setRawMode(wasRaw);
+      }
     }
   }
 
