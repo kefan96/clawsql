@@ -19,6 +19,8 @@ MySQL High Availability Management Platform with automatic failover, read/write 
 
 ## Quick Start
 
+**New to ClawSQL?** See the **[Getting Started Guide](docs/GET_STARTED.md)** for a step-by-step tutorial.
+
 ### Option 1: Demo Mode (Recommended for Testing)
 
 Start with a pre-configured demo MySQL cluster:
@@ -142,9 +144,33 @@ Available configuration keys:
   --replicas <h:p,...>   Replica instances (optional)
 
 /clusters sync [--name <cluster>]                 # Sync to ProxySQL
-/clusters promote --name <cluster> --host <h:p>   # Promote replica to primary
 /clusters add-replica --name <cluster> --host <h:p>    # Add replica
 /clusters remove-replica --name <cluster> --host <h:p> # Remove replica
+```
+
+### Failover Operations
+
+```bash
+/failover status                        # Show failover configuration
+/failover history                       # Show operation history
+/failover switchover <cluster> [target] # Planned primary change (primary healthy)
+/failover failover <cluster> [target]   # Emergency failover (primary down)
+/failover recover list                  # List instances pending recovery
+/failover recover <instance>            # Recover specific instance
+/failover recover --all                 # Recover all pending instances
+```
+
+> **Note:** For promoting replicas, use `/failover switchover` instead of `/clusters promote`.
+
+### Additional Commands
+
+```bash
+/topology [--name <cluster>]           # Quick topology view
+/sql <host:port> "<query>"             # Execute SQL query on instance
+/cron list                             # List scheduled tasks
+/cron create "<cron>" "<command>"      # Schedule a recurring task
+/cron remove <task-id>                 # Remove scheduled task
+/notify send --message "<msg>"         # Send notification
 ```
 
 ## MySQL Configuration Requirements
@@ -231,6 +257,37 @@ Key settings:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## AI Agent Integration
+
+ClawSQL includes an AI-powered assistant for database operations using [OpenClaw](https://github.com/anthropics/openclaw).
+
+### Prerequisites
+
+Install and configure the OpenClaw CLI following the [OpenClaw documentation](https://github.com/anthropics/openclaw#installation).
+
+### Using the AI Agent
+
+Start the CLI and interact naturally:
+
+```
+clawsql> show me the cluster topology
+clawsql> what's the replication lag on replica-1?
+clawsql> help me set up a new replica
+clawsql> explain the failover process
+```
+
+### Supported Operations
+
+- **Topology queries**: "show me the cluster", "what's the primary?"
+- **Status checks**: "check replication status", "is the cluster healthy?"
+- **Guided operations**: "how do I add a replica?", "help me set up failover"
+- **Troubleshooting**: "why is replication lag high?", "diagnose connection issues"
+- **Explanations**: "explain read/write splitting", "how does failover work?"
+
+### Stopping AI Operations
+
+During AI processing, press **ESC twice** (within 500ms) to stop the current operation.
+
 ## Development
 
 ```bash
@@ -304,8 +361,10 @@ docker exec proxysql mysql -h127.0.0.1 -P6032 -uadmin -padmin -e "DELETE FROM my
 
 ## Documentation
 
+- [Getting Started](docs/GET_STARTED.md) - Step-by-step tutorial
 - [API Documentation](docs/API.md) - REST API reference
 - [Demo Guide](docs/DEMO.md) - Testing with demo cluster
+- [Failover Documentation](docs/failover.md) - Failover architecture and operations
 - [System Architecture](docs/architecture/system_design.md) - Technical details
 
 ## License

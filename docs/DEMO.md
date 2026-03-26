@@ -2,6 +2,8 @@
 
 This guide shows how to use ClawSQL with a demo MySQL cluster for testing and evaluation.
 
+**New to ClawSQL?** See the **[Getting Started Guide](GET_STARTED.md)** for a step-by-step tutorial.
+
 ## Quick Start
 
 ### Using start.sh
@@ -160,6 +162,38 @@ curl -X POST http://localhost:8080/api/v1/failover/execute \
 # View failover history
 curl http://localhost:8080/api/v1/failover/history
 ```
+
+## Using the AI Agent (OpenClaw)
+
+If you have [OpenClaw](https://github.com/anthropics/openclaw) installed, you can use natural language commands:
+
+```
+clawsql> show me the cluster topology
+clawsql> what's the replication lag?
+clawsql> which instance is the primary?
+clawsql> explain how failover works
+clawsql> help me troubleshoot replication issues
+```
+
+### AI Agent Demo Scenarios
+
+```bash
+# Ask about current state
+clawsql> what is the status of my cluster?
+
+# Get guided help
+clawsql> how do I add a new replica?
+
+# Troubleshoot issues
+clawsql> why might a replica have high lag?
+
+# Learn about features
+clawsql> what does ProxySQL do?
+```
+
+### Stopping AI Operations
+
+During AI processing, press **ESC twice** (within 500ms) to stop the current operation.
 
 ## Using Grafana
 

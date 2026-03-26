@@ -312,6 +312,41 @@ GET /config/history
 POST /config/rollback/{version_id}
 ```
 
+### Webhooks
+
+Webhook endpoints receive events from external systems like Orchestrator.
+
+#### Orchestrator Failover Webhook
+
+Receives failover events from Orchestrator and triggers ProxySQL synchronization.
+
+```http
+POST /webhooks/orchestrator/failover
+```
+
+Request Body:
+```json
+{
+  "cluster": "mysql-primary",
+  "master": "172.18.0.10:3306",
+  "successor": "172.18.0.11:3306",
+  "isSuccessful": true,
+  "failoverType": "master"
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "ProxySQL sync triggered for cluster mysql-primary"
+}
+```
+
+This webhook is automatically called by Orchestrator when:
+- A master failover completes
+- An intermediate master failover completes
+
 ## Error Responses
 
 All errors follow this format:
