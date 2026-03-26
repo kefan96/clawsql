@@ -23,6 +23,10 @@ import clustersRoutes from './api/routes/clusters.js';
 import failoverRoutes from './api/routes/failover.js';
 import monitoringRoutes from './api/routes/monitoring.js';
 import configRoutes from './api/routes/config.js';
+import webhookRoutes from './api/routes/webhooks.js';
+
+// Import sync services
+import { getTopologyWatcher } from './core/sync/topology-watcher.js';
 
 /**
  * Create and configure the Fastify application
@@ -133,6 +137,7 @@ ClawSQL provides comprehensive automation for MySQL cluster management:
   await fastify.register(failoverRoutes, { prefix: '/api/v1/failover' });
   await fastify.register(monitoringRoutes, { prefix: '/api/v1/monitoring' });
   await fastify.register(configRoutes, { prefix: '/api/v1/config' });
+  await fastify.register(webhookRoutes, { prefix: '/api/v1/webhooks' });
 
   // Error handler
   fastify.setErrorHandler((error: FastifyError, request, reply) => {
@@ -187,6 +192,23 @@ export async function startServer() {
       `ClawSQL API running at http://${settings.api.host}:${settings.api.port}`
     );
     fastify.log.info(`API Docs available at http://${settings.api.host}:${settings.api.port}/docs`);
+
+    // Start topology watcher for automatic ProxySQL sync
+    const topologyWatcher = getTopologyWatcher();
+    await topologyWatcher.start();
+    fastify.log.info('Topology watcher started - ProxySQL will auto-sync on topology changes');
+
+    // Graceful shutdown handlers
+    const shutdown = async (signal: string) => {
+      fastify.log.info(`Received ${signal}, shutting down gracefully...`);
+      topologyWatcher.stop();
+      await fastify.close();
+      fastify.log.info('Shutdown complete');
+      process.exit(0);
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
 
     return fastify;
   } catch (error) {

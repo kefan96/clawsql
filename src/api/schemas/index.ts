@@ -141,16 +141,16 @@ export const FailoverRequest = z.object({
 export const FailoverOperationResponse = z.object({
   operation_id: z.string(),
   cluster_id: z.string(),
-  old_primary_id: z.string(),
+  old_primary_id: z.string().nullable(),
   new_primary_id: z.string().nullable(),
   state: FailoverStateSchema,
-  started_at: z.coerce.date().nullable(),
-  completed_at: z.coerce.date().nullable(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
   duration_seconds: z.number().nullable(),
   steps: z.array(z.string()),
   error: z.string().nullable(),
   manual: z.boolean(),
-  reason: z.string(),
+  reason: z.string().nullable(),
   triggered_by: z.string().nullable(),
 });
 

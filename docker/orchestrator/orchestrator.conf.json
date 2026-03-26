@@ -80,10 +80,16 @@
   "FailMasterFailover": true,
   "OnFailureDetectionProcesses": [],
   "PreFailoverProcesses": [],
-  "PostFailoverProcesses": [],
+  "PostFailoverProcesses": [
+    "curl -s -X POST http://clawsql:8080/api/v1/webhooks/orchestrator/failover -H 'Content-Type: application/json' -d '{\"cluster\":\"{alias}\",\"master\":\"{failedHost}:{failedPort}\",\"successor\":\"{successorHost}:{successorPort}\",\"isSuccessful\":{isSuccessful},\"failoverType\":\"master\",\"reason\":\"{failureType}\"}'"
+  ],
   "PostUnsuccessfulFailoverProcesses": [],
-  "PostMasterFailoverProcesses": [],
-  "PostIntermediateMasterFailoverProcesses": [],
+  "PostMasterFailoverProcesses": [
+    "curl -s -X POST http://clawsql:8080/api/v1/webhooks/orchestrator/failover -H 'Content-Type: application/json' -d '{\"cluster\":\"{alias}\",\"master\":\"{failedHost}:{failedPort}\",\"successor\":\"{successorHost}:{successorPort}\",\"isSuccessful\":true,\"failoverType\":\"master\"}'"
+  ],
+  "PostIntermediateMasterFailoverProcesses": [
+    "curl -s -X POST http://clawsql:8080/api/v1/webhooks/orchestrator/failover -H 'Content-Type: application/json' -d '{\"cluster\":\"{alias}\",\"master\":\"{failedHost}:{failedPort}\",\"successor\":\"{successorHost}:{successorPort}\",\"isSuccessful\":true,\"failoverType\":\"intermediate-master\"}'"
+  ],
   "UnresolvedHostnameRecoveryPeriodHours": 1,
   "AutopseudoGTID": false,
   "AutopseudoGTIDIntervalSeconds": 300,

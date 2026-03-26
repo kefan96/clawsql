@@ -246,7 +246,9 @@ export class OrchestratorClient {
    */
   async endMaintenance(host: string, port: number): Promise<boolean> {
     try {
-      await this.client.post(`/api/maintenance-end/${host}/${port}`);
+      // Orchestrator uses GET method for end-downtime endpoint
+      await this.client.get(`/api/end-downtime/${host}/${port}`);
+      logger.info({ host, port }, 'Instance removed from maintenance');
       return true;
     } catch (error) {
       logger.error({ error, host, port }, 'Failed to end maintenance');
@@ -339,6 +341,76 @@ export class OrchestratorClient {
       return true;
     } catch (error) {
       logger.error({ error, host, port, destinationHost, destinationPort }, 'Failed to relocate replicas');
+      return false;
+    }
+  }
+
+  /**
+   * Set instance as read-only
+   */
+  async setReadOnly(host: string, port: number): Promise<boolean> {
+    try {
+      await this.client.get(`/api/set-read-only/${host}/${port}`);
+      logger.info({ host, port }, 'Instance set to read-only');
+      return true;
+    } catch (error) {
+      logger.error({ error, host, port }, 'Failed to set read-only');
+      return false;
+    }
+  }
+
+  /**
+   * Set instance as writeable
+   */
+  async setWriteable(host: string, port: number): Promise<boolean> {
+    try {
+      await this.client.get(`/api/set-writeable/${host}/${port}`);
+      logger.info({ host, port }, 'Instance set to writeable');
+      return true;
+    } catch (error) {
+      logger.error({ error, host, port }, 'Failed to set writeable');
+      return false;
+    }
+  }
+
+  /**
+   * Start replication on an instance
+   */
+  async startSlave(host: string, port: number): Promise<boolean> {
+    try {
+      await this.client.get(`/api/start-slave/${host}/${port}`);
+      logger.info({ host, port }, 'Replication started');
+      return true;
+    } catch (error) {
+      logger.error({ error, host, port }, 'Failed to start replication');
+      return false;
+    }
+  }
+
+  /**
+   * Stop replication on an instance
+   */
+  async stopSlave(host: string, port: number): Promise<boolean> {
+    try {
+      await this.client.get(`/api/stop-slave/${host}/${port}`);
+      logger.info({ host, port }, 'Replication stopped');
+      return true;
+    } catch (error) {
+      logger.error({ error, host, port }, 'Failed to stop replication');
+      return false;
+    }
+  }
+
+  /**
+   * Reset replication on an instance
+   */
+  async resetSlave(host: string, port: number): Promise<boolean> {
+    try {
+      await this.client.get(`/api/reset-slave/${host}/${port}`);
+      logger.info({ host, port }, 'Replication reset');
+      return true;
+    } catch (error) {
+      logger.error({ error, host, port }, 'Failed to reset replication');
       return false;
     }
   }
@@ -478,7 +550,7 @@ export class OrchestratorClient {
     }
 
     // Handle maintenance mode
-    if (data.in_maintenance) {
+    if (data.in_maintenance || data.IsDowntimed) {
       state = InstanceState.MAINTENANCE;
     }
 

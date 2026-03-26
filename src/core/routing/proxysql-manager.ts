@@ -366,6 +366,14 @@ export class ProxySQLManager {
         await this.setMonitorCredentials(adminUser, adminPassword);
       }
 
+      // Clear existing servers from both hostgroups before adding new ones
+      // This ensures stale entries (e.g., old primary in writer hostgroup) are removed
+      await this.execute(
+        'DELETE FROM mysql_servers WHERE hostgroup_id IN (?, ?)',
+        [writerHostgroup, readerHostgroup]
+      );
+      logger.debug({ writerHostgroup, readerHostgroup }, 'Cleared existing servers from hostgroups');
+
       // Add primary to writer hostgroup
       if (cluster.primary) {
         if (await this.addServer(cluster.primary, writerHostgroup)) {

@@ -92,6 +92,15 @@ const AISettingsSchema = z.object({
   temperature: z.number().min(0).max(2).default(0.7),
 });
 
+const SyncSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+  pollIntervalMs: z.number().int().min(60000).default(300000), // 5 minutes default
+  webhookSecret: z.string().optional(),
+  syncCooldownMs: z.number().int().min(1000).default(5000),
+  debounceMs: z.number().int().min(100).default(1000),
+  maxRetries: z.number().int().min(1).max(5).default(2),
+});
+
 const SettingsSchema = z.object({
   appName: z.string().default('ClawSQL'),
   appVersion: z.string().default('0.1.0'),
@@ -107,6 +116,7 @@ const SettingsSchema = z.object({
   mysql: MySQLCredentialsSchema,
   logging: LogSettingsSchema,
   ai: AISettingsSchema,
+  sync: SyncSettingsSchema,
 });
 
 // =============================================================================
@@ -124,6 +134,7 @@ export type APISettings = z.infer<typeof APISettingsSchema>;
 export type MySQLCredentials = z.infer<typeof MySQLCredentialsSchema>;
 export type LogSettings = z.infer<typeof LogSettingsSchema>;
 export type AISettings = z.infer<typeof AISettingsSchema>;
+export type SyncSettings = z.infer<typeof SyncSettingsSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 
 // =============================================================================
@@ -236,6 +247,15 @@ function loadSettings(): Settings {
       model: getEnvString('CLAWSQL_AI_MODEL'),
       maxTokens: getEnvInt('CLAWSQL_AI_MAX_TOKENS'),
       temperature: getEnvNumber('CLAWSQL_AI_TEMPERATURE'),
+    },
+
+    sync: {
+      enabled: getEnvBool('SYNC_ENABLED'),
+      pollIntervalMs: getEnvInt('SYNC_POLL_INTERVAL_MS'),
+      webhookSecret: getEnvString('SYNC_WEBHOOK_SECRET'),
+      syncCooldownMs: getEnvInt('SYNC_COOLDOWN_MS'),
+      debounceMs: getEnvInt('SYNC_DEBOUNCE_MS'),
+      maxRetries: getEnvInt('SYNC_MAX_RETRIES'),
     },
   };
 

@@ -244,6 +244,143 @@ describe('OrchestratorClient', () => {
       );
     });
   });
+
+  // ===========================================================================
+  // Replication Control Methods
+  // ===========================================================================
+
+  describe('setReadOnly', () => {
+    it('should set instance to read-only', async () => {
+      mockAxiosInstance.get.mockResolvedValue({});
+
+      const result = await client.setReadOnly('mysql-primary', 3306);
+
+      expect(result).toBe(true);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/set-read-only/mysql-primary/3306');
+    });
+
+    it('should return false on failure', async () => {
+      mockAxiosInstance.get.mockRejectedValue(new Error('Failed'));
+
+      const result = await client.setReadOnly('mysql-primary', 3306);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('setWriteable', () => {
+    it('should set instance to writeable', async () => {
+      mockAxiosInstance.get.mockResolvedValue({});
+
+      const result = await client.setWriteable('mysql-primary', 3306);
+
+      expect(result).toBe(true);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/set-writeable/mysql-primary/3306');
+    });
+
+    it('should return false on failure', async () => {
+      mockAxiosInstance.get.mockRejectedValue(new Error('Failed'));
+
+      const result = await client.setWriteable('mysql-primary', 3306);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('startSlave', () => {
+    it('should start replication', async () => {
+      mockAxiosInstance.get.mockResolvedValue({});
+
+      const result = await client.startSlave('mysql-replica', 3306);
+
+      expect(result).toBe(true);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/start-slave/mysql-replica/3306');
+    });
+
+    it('should return false on failure', async () => {
+      mockAxiosInstance.get.mockRejectedValue(new Error('Failed'));
+
+      const result = await client.startSlave('mysql-replica', 3306);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('stopSlave', () => {
+    it('should stop replication', async () => {
+      mockAxiosInstance.get.mockResolvedValue({});
+
+      const result = await client.stopSlave('mysql-replica', 3306);
+
+      expect(result).toBe(true);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/stop-slave/mysql-replica/3306');
+    });
+
+    it('should return false on failure', async () => {
+      mockAxiosInstance.get.mockRejectedValue(new Error('Failed'));
+
+      const result = await client.stopSlave('mysql-replica', 3306);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('resetSlave', () => {
+    it('should reset replication', async () => {
+      mockAxiosInstance.get.mockResolvedValue({});
+
+      const result = await client.resetSlave('mysql-replica', 3306);
+
+      expect(result).toBe(true);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/reset-slave/mysql-replica/3306');
+    });
+
+    it('should return false on failure', async () => {
+      mockAxiosInstance.get.mockRejectedValue(new Error('Failed'));
+
+      const result = await client.resetSlave('mysql-replica', 3306);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('endMaintenance', () => {
+    it('should end maintenance mode using GET end-downtime endpoint', async () => {
+      mockAxiosInstance.get.mockResolvedValue({});
+
+      const result = await client.endMaintenance('mysql-replica', 3306);
+
+      expect(result).toBe(true);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/end-downtime/mysql-replica/3306');
+    });
+
+    it('should return false on failure', async () => {
+      mockAxiosInstance.get.mockRejectedValue(new Error('Failed'));
+
+      const result = await client.endMaintenance('mysql-replica', 3306);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('beginMaintenance', () => {
+    it('should begin maintenance mode', async () => {
+      mockAxiosInstance.post.mockResolvedValue({});
+
+      const result = await client.beginMaintenance('mysql-replica', 3306, 'Testing', 60);
+
+      expect(result).toBe(true);
+      expect(mockAxiosInstance.post).toHaveBeenCalled();
+    });
+
+    it('should return false on failure', async () => {
+      mockAxiosInstance.post.mockRejectedValue(new Error('Failed'));
+
+      const result = await client.beginMaintenance('mysql-replica', 3306, 'Testing', 60);
+
+      expect(result).toBe(false);
+    });
+  });
 });
 
 describe('getOrchestratorClient', () => {

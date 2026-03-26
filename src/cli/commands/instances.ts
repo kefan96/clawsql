@@ -7,6 +7,7 @@
 import { Command, CLIContext } from '../registry.js';
 import chalk from 'chalk';
 import { NetworkScanner, probeMySQLInstance } from '../../core/discovery/scanner.js';
+import { getMySQLClient } from '../../utils/mysql-client.js';
 import ora from 'ora';
 
 /**
@@ -15,16 +16,26 @@ import ora from 'ora';
 export const instancesCommand: Command = {
   name: 'instances',
   description: 'Manage MySQL instances',
-  usage: '/instances <list|register|discover|remove> [args...]',
+  usage: '/instances <list|register|discover|remove|replication|setup-replication|read-only|writeable|start-slave|stop-slave|reset-slave|relocate|begin-maintenance|end-maintenance> [args...]',
   handler: async (args: string[], ctx: CLIContext) => {
     const formatter = ctx.formatter;
 
     if (args.length === 0) {
-      console.log(formatter.error('Missing subcommand. Usage: /instances <list|register|discover|remove>'));
-      console.log(formatter.info('  list     - List discovered instances'));
-      console.log(formatter.info('  register - Register a new instance'));
-      console.log(formatter.info('  discover - Scan network for instances'));
-      console.log(formatter.info('  remove   - Remove instance from topology'));
+      console.log(formatter.error('Missing subcommand. Usage: /instances <subcommand> [args...]'));
+      console.log(formatter.info('  list              - List discovered instances'));
+      console.log(formatter.info('  register          - Register a new instance'));
+      console.log(formatter.info('  discover          - Scan network for instances'));
+      console.log(formatter.info('  remove            - Remove instance from topology'));
+      console.log(formatter.info('  replication       - Show detailed replication status'));
+      console.log(formatter.info('  setup-replication - Configure replication (direct MySQL)'));
+      console.log(formatter.info('  read-only         - Set instance read-only (via Orchestrator)'));
+      console.log(formatter.info('  writeable         - Set instance writeable (via Orchestrator)'));
+      console.log(formatter.info('  start-slave       - Start replication (via Orchestrator)'));
+      console.log(formatter.info('  stop-slave        - Stop replication (via Orchestrator)'));
+      console.log(formatter.info('  reset-slave       - Reset replication (via Orchestrator)'));
+      console.log(formatter.info('  relocate          - Move replica to follow new master'));
+      console.log(formatter.info('  begin-maintenance - Put instance in maintenance mode'));
+      console.log(formatter.info('  end-maintenance   - Remove instance from maintenance mode'));
       return;
     }
 
@@ -44,9 +55,39 @@ export const instancesCommand: Command = {
       case 'forget':
         await removeInstance(args.slice(1), ctx);
         break;
+      case 'replication':
+        await showReplicationStatus(args.slice(1), ctx);
+        break;
+      case 'setup-replication':
+        await setupReplication(args.slice(1), ctx);
+        break;
+      case 'read-only':
+        await setReadOnly(args.slice(1), ctx);
+        break;
+      case 'writeable':
+        await setWriteable(args.slice(1), ctx);
+        break;
+      case 'start-slave':
+        await startSlave(args.slice(1), ctx);
+        break;
+      case 'stop-slave':
+        await stopSlave(args.slice(1), ctx);
+        break;
+      case 'reset-slave':
+        await resetSlave(args.slice(1), ctx);
+        break;
+      case 'relocate':
+        await relocateReplica(args.slice(1), ctx);
+        break;
+      case 'begin-maintenance':
+        await beginMaintenance(args.slice(1), ctx);
+        break;
+      case 'end-maintenance':
+        await endMaintenance(args.slice(1), ctx);
+        break;
       default:
         console.log(formatter.error(`Unknown subcommand: ${subcommand}`));
-        console.log(formatter.info('Available: list, register, discover, remove'));
+        console.log(formatter.info('Available: list, register, discover, remove, replication, setup-replication, read-only, writeable, start-slave, stop-slave, reset-slave, relocate, begin-maintenance, end-maintenance'));
     }
   },
 };
@@ -356,6 +397,499 @@ function parseStringArg(args: string[], name: string): string | undefined {
   const idx = args.indexOf(name);
   if (idx === -1 || idx + 1 >= args.length) return undefined;
   return args[idx + 1];
+}
+
+/**
+ * Show detailed replication status for an instance
+ */
+async function showReplicationStatus(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+
+  const parsed = parseHostPortArgs(args);
+  if (!parsed) {
+    console.log(formatter.error('Missing host. Usage: /instances replication <host:port>'));
+    return;
+  }
+
+  const { host, port } = parsed;
+  const instanceId = `${host}:${port}`;
+
+  console.log(formatter.header(`Replication Status: ${instanceId}`));
+
+  try {
+    const mysqlClient = getMySQLClient();
+
+    // Get SHOW SLAVE STATUS
+    const status = await mysqlClient.getReplicationStatus(host, port);
+
+    if (!status) {
+      console.log(formatter.info('No replication configured (not a replica).'));
+      console.log(formatter.info('This instance may be a primary or has no replication set up.'));
+      return;
+    }
+
+    // Display replication status
+    console.log();
+    console.log(formatter.keyValue('IO Thread Running', status.ioRunning ? chalk.green('Yes') : chalk.red('No')));
+    console.log(formatter.keyValue('SQL Thread Running', status.sqlRunning ? chalk.green('Yes') : chalk.red('No')));
+    console.log(formatter.keyValue('Seconds Behind Master', status.secondsBehind !== null ? `${status.secondsBehind}s` : 'N/A'));
+
+    // Show additional details via direct query
+    const mysql = await import('mysql2/promise');
+    const connection = await mysql.createConnection({
+      host,
+      port,
+      user: ctx.settings.mysql.adminUser,
+      password: ctx.settings.mysql.adminPassword,
+      connectTimeout: 5000,
+    });
+
+    const [rows] = await connection.execute('SHOW SLAVE STATUS');
+    const slaveStatus = (rows as Record<string, unknown>[])[0];
+    await connection.end();
+
+    if (slaveStatus) {
+      console.log();
+      console.log(formatter.keyValue('Master Host', String(slaveStatus.Master_Host || 'N/A')));
+      console.log(formatter.keyValue('Master Port', String(slaveStatus.Master_Port || 'N/A')));
+      console.log(formatter.keyValue('Master User', String(slaveStatus.Master_User || 'N/A')));
+      console.log(formatter.keyValue('Relay Log File', String(slaveStatus.Relay_Log_File || 'N/A')));
+      console.log(formatter.keyValue('Relay Log Pos', String(slaveStatus.Relay_Log_Pos || 'N/A')));
+      console.log(formatter.keyValue('Exec Master Log Pos', String(slaveStatus.Exec_Master_Log_Pos || 'N/A')));
+
+      if (slaveStatus.Last_IO_Error) {
+        console.log();
+        console.log(formatter.error('Last IO Error:'));
+        console.log(formatter.info(`  ${slaveStatus.Last_IO_Error}`));
+      }
+
+      if (slaveStatus.Last_SQL_Error) {
+        console.log();
+        console.log(formatter.error('Last SQL Error:'));
+        console.log(formatter.info(`  ${slaveStatus.Last_SQL_Error}`));
+      }
+    }
+
+    console.log();
+    if (status.ioRunning && status.sqlRunning) {
+      console.log(formatter.success('Replication is healthy.'));
+    } else {
+      console.log(formatter.warning('Replication has issues. Check IO and SQL thread status.'));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to get replication status: ${message}`));
+  }
+}
+
+/**
+ * Set up replication for an instance
+ */
+async function setupReplication(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+
+  // Parse arguments
+  const hostArg = parseStringArg(args, '--host');
+  const masterArg = parseStringArg(args, '--master');
+  const user = parseStringArg(args, '--user') || 'repl';
+  const password = parseStringArg(args, '--password') || 'replpassword';
+
+  if (!hostArg || !masterArg) {
+    console.log(formatter.error('Missing required arguments. Usage: /instances setup-replication --host <host:port> --master <master:port>'));
+    console.log(formatter.info('  --host <host:port>     Instance to configure as replica'));
+    console.log(formatter.info('  --master <master:port> Master instance to replicate from'));
+    console.log(formatter.info('  --user <user>          Replication user (default: repl)'));
+    console.log(formatter.info('  --password <password>  Replication password'));
+    return;
+  }
+
+  // Parse host and master
+  const [host, hostPortStr] = hostArg.split(':');
+  const port = parseInt(hostPortStr || '3306', 10);
+
+  const [masterHost, masterPortStr] = masterArg.split(':');
+  const masterPort = parseInt(masterPortStr || '3306', 10);
+
+  console.log(formatter.header('Setting Up Replication'));
+  console.log(formatter.keyValue('Replica', `${host}:${port}`));
+  console.log(formatter.keyValue('Master', `${masterHost}:${masterPort}`));
+  console.log(formatter.keyValue('Replication User', user));
+  console.log();
+
+  try {
+    const mysql = await import('mysql2/promise');
+    const connection = await mysql.createConnection({
+      host,
+      port,
+      user: ctx.settings.mysql.adminUser,
+      password: ctx.settings.mysql.adminPassword,
+      connectTimeout: 10000,
+    });
+
+    // Stop slave first
+    console.log(formatter.info('Stopping existing replication...'));
+    await connection.execute('STOP SLAVE');
+
+    // Configure replication
+    console.log(formatter.info('Configuring replication...'));
+    await connection.execute(`
+      CHANGE MASTER TO
+        MASTER_HOST = ?,
+        MASTER_PORT = ?,
+        MASTER_USER = ?,
+        MASTER_PASSWORD = ?,
+        MASTER_AUTO_POSITION = 1
+    `, [masterHost, masterPort, user, password]);
+
+    // Start slave
+    console.log(formatter.info('Starting replication...'));
+    await connection.execute('START SLAVE');
+
+    // Wait and check status
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const [rows] = await connection.execute('SHOW SLAVE STATUS');
+    const status = (rows as Record<string, unknown>[])[0];
+
+    await connection.end();
+
+    if (status) {
+      const ioRunning = status.Slave_IO_Running === 'Yes';
+      const sqlRunning = status.Slave_SQL_Running === 'Yes';
+
+      console.log();
+      console.log(formatter.keyValue('IO Thread', ioRunning ? chalk.green('Running') : chalk.red('Not running')));
+      console.log(formatter.keyValue('SQL Thread', sqlRunning ? chalk.green('Running') : chalk.red('Not running')));
+
+      if (ioRunning && sqlRunning) {
+        console.log();
+        console.log(formatter.success('Replication configured and running successfully!'));
+      } else {
+        console.log();
+        console.log(formatter.warning('Replication configured but not fully running.'));
+        if (status.Last_IO_Error) {
+          console.log(formatter.error(`IO Error: ${status.Last_IO_Error}`));
+        }
+        if (status.Last_SQL_Error) {
+          console.log(formatter.error(`SQL Error: ${status.Last_SQL_Error}`));
+        }
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to set up replication: ${message}`));
+  }
+}
+
+/**
+ * Set instance read-only (via Orchestrator)
+ * Requires instance to be registered in Orchestrator
+ */
+async function setReadOnly(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const orchestrator = ctx.orchestrator;
+
+  const parsed = parseHostPortArgs(args);
+  if (!parsed) {
+    console.log(formatter.error('Missing host. Usage: /instances read-only <host:port>'));
+    console.log(formatter.info('  <host:port>  Instance to set read-only'));
+    console.log(formatter.info('Note: Instance must be registered in Orchestrator'));
+    return;
+  }
+
+  const { host, port } = parsed;
+  console.log(formatter.info(`Setting ${host}:${port} to read-only...`));
+
+  try {
+    const success = await orchestrator.setReadOnly(host, port);
+    if (success) {
+      console.log(formatter.success(`Instance ${host}:${port} is now read-only.`));
+    } else {
+      console.log(formatter.error(`Failed to set ${host}:${port} read-only.`));
+      console.log(formatter.info('Ensure the instance is registered in Orchestrator.'));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to set read-only: ${message}`));
+  }
+}
+
+/**
+ * Set instance writeable (via Orchestrator)
+ * Requires instance to be registered in Orchestrator
+ */
+async function setWriteable(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const orchestrator = ctx.orchestrator;
+
+  const parsed = parseHostPortArgs(args);
+  if (!parsed) {
+    console.log(formatter.error('Missing host. Usage: /instances writeable <host:port>'));
+    console.log(formatter.info('  <host:port>  Instance to set writeable'));
+    console.log(formatter.info('Note: Instance must be registered in Orchestrator'));
+    return;
+  }
+
+  const { host, port } = parsed;
+  console.log(formatter.info(`Setting ${host}:${port} to writeable...`));
+
+  try {
+    const success = await orchestrator.setWriteable(host, port);
+    if (success) {
+      console.log(formatter.success(`Instance ${host}:${port} is now writeable.`));
+    } else {
+      console.log(formatter.error(`Failed to set ${host}:${port} writeable.`));
+      console.log(formatter.info('Ensure the instance is registered in Orchestrator.'));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to set writeable: ${message}`));
+  }
+}
+
+/**
+ * Start replication on an instance (via Orchestrator)
+ * Requires instance to be registered in Orchestrator
+ */
+async function startSlave(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const orchestrator = ctx.orchestrator;
+
+  const parsed = parseHostPortArgs(args);
+  if (!parsed) {
+    console.log(formatter.error('Missing host. Usage: /instances start-slave <host:port>'));
+    console.log(formatter.info('  <host:port>  Instance to start replication on'));
+    console.log(formatter.info('Note: Instance must be registered in Orchestrator'));
+    return;
+  }
+
+  const { host, port } = parsed;
+  console.log(formatter.info(`Starting replication on ${host}:${port}...`));
+
+  try {
+    const success = await orchestrator.startSlave(host, port);
+    if (success) {
+      console.log(formatter.success(`Replication started on ${host}:${port}.`));
+    } else {
+      console.log(formatter.error(`Failed to start replication on ${host}:${port}.`));
+      console.log(formatter.info('Ensure the instance is registered and replication is configured.'));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to start replication: ${message}`));
+  }
+}
+
+/**
+ * Stop replication on an instance (via Orchestrator)
+ * Requires instance to be registered in Orchestrator
+ */
+async function stopSlave(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const orchestrator = ctx.orchestrator;
+
+  const parsed = parseHostPortArgs(args);
+  if (!parsed) {
+    console.log(formatter.error('Missing host. Usage: /instances stop-slave <host:port>'));
+    console.log(formatter.info('  <host:port>  Instance to stop replication on'));
+    console.log(formatter.info('Note: Instance must be registered in Orchestrator'));
+    return;
+  }
+
+  const { host, port } = parsed;
+  console.log(formatter.info(`Stopping replication on ${host}:${port}...`));
+
+  try {
+    const success = await orchestrator.stopSlave(host, port);
+    if (success) {
+      console.log(formatter.success(`Replication stopped on ${host}:${port}.`));
+    } else {
+      console.log(formatter.error(`Failed to stop replication on ${host}:${port}.`));
+      console.log(formatter.info('Ensure the instance is registered in Orchestrator.'));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to stop replication: ${message}`));
+  }
+}
+
+/**
+ * Reset replication on an instance (via Orchestrator)
+ * Requires instance to be registered in Orchestrator
+ */
+async function resetSlave(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const orchestrator = ctx.orchestrator;
+
+  const parsed = parseHostPortArgs(args);
+  if (!parsed) {
+    console.log(formatter.error('Missing host. Usage: /instances reset-slave <host:port>'));
+    console.log(formatter.info('  <host:port>  Instance to reset replication on'));
+    console.log(formatter.info('Note: Instance must be registered in Orchestrator'));
+    console.log(formatter.warning('Warning: This removes all replication configuration!'));
+    return;
+  }
+
+  const { host, port } = parsed;
+
+  // Confirm destructive action
+  console.log(formatter.warning(`This will remove all replication configuration on ${host}:${port}.`));
+  console.log(formatter.info('Use /instances reset-slave --confirm <host:port> to proceed.'));
+
+  if (!args.includes('--confirm')) {
+    return;
+  }
+
+  console.log(formatter.info(`Resetting replication on ${host}:${port}...`));
+
+  try {
+    const success = await orchestrator.resetSlave(host, port);
+    if (success) {
+      console.log(formatter.success(`Replication reset on ${host}:${port}.`));
+    } else {
+      console.log(formatter.error(`Failed to reset replication on ${host}:${port}.`));
+      console.log(formatter.info('Ensure the instance is registered in Orchestrator.'));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to reset replication: ${message}`));
+  }
+}
+
+/**
+ * Relocate a replica to follow a new master (via Orchestrator)
+ * Requires both instances to be registered in Orchestrator
+ */
+async function relocateReplica(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const orchestrator = ctx.orchestrator;
+
+  const hostArg = parseStringArg(args, '--host');
+  const masterArg = parseStringArg(args, '--master');
+
+  if (!hostArg || !masterArg) {
+    console.log(formatter.error('Missing required arguments. Usage: /instances relocate --host <host:port> --master <new-master:port>'));
+    console.log(formatter.info('  --host <host:port>     Replica to relocate'));
+    console.log(formatter.info('  --master <host:port>   New master to follow'));
+    console.log(formatter.info('Note: Both instances must be registered in Orchestrator'));
+    return;
+  }
+
+  const [host, portStr] = hostArg.split(':');
+  const port = parseInt(portStr || '3306', 10);
+
+  const [masterHost, masterPortStr] = masterArg.split(':');
+  const masterPort = parseInt(masterPortStr || '3306', 10);
+
+  console.log(formatter.header('Relocating Replica'));
+  console.log(formatter.keyValue('Replica', `${host}:${port}`));
+  console.log(formatter.keyValue('New Master', `${masterHost}:${masterPort}`));
+  console.log();
+
+  try {
+    const success = await orchestrator.relocateReplicas(host, port, masterHost, masterPort);
+    if (success) {
+      console.log(formatter.success(`Replica ${host}:${port} relocated to follow ${masterHost}:${masterPort}.`));
+    } else {
+      console.log(formatter.error(`Failed to relocate ${host}:${port}.`));
+      console.log(formatter.info('Ensure both instances are registered in Orchestrator.'));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to relocate replica: ${message}`));
+  }
+}
+
+/**
+ * Put instance in maintenance mode (via Orchestrator)
+ * Requires instance to be registered in Orchestrator
+ */
+async function beginMaintenance(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const orchestrator = ctx.orchestrator;
+
+  const parsed = parseHostPortArgs(args);
+  if (!parsed) {
+    console.log(formatter.error('Missing host. Usage: /instances begin-maintenance <host:port> [--reason <reason>] [--duration <minutes>]'));
+    console.log(formatter.info('  <host:port>     Instance to put in maintenance'));
+    console.log(formatter.info('  --reason <r>    Reason for maintenance'));
+    console.log(formatter.info('  --duration <m>  Duration in minutes (default: 60)'));
+    console.log(formatter.info('Note: Instance must be registered in Orchestrator'));
+    return;
+  }
+
+  const { host, port } = parsed;
+  const reason = parseStringArg(args, '--reason') || 'Manual maintenance via ClawSQL';
+  const duration = parseNumberArg(args, '--duration', 60);
+
+  console.log(formatter.info(`Putting ${host}:${port} in maintenance mode...`));
+  console.log(formatter.keyValue('Reason', reason));
+  console.log(formatter.keyValue('Duration', `${duration} minutes`));
+
+  try {
+    const success = await orchestrator.beginMaintenance(host, port, reason, duration);
+    if (success) {
+      console.log(formatter.success(`Instance ${host}:${port} is now in maintenance mode.`));
+    } else {
+      console.log(formatter.error(`Failed to put ${host}:${port} in maintenance mode.`));
+      console.log(formatter.info('Ensure the instance is registered in Orchestrator.'));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to begin maintenance: ${message}`));
+  }
+}
+
+/**
+ * Remove instance from maintenance mode (via Orchestrator)
+ * Requires instance to be registered in Orchestrator
+ */
+async function endMaintenance(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const orchestrator = ctx.orchestrator;
+
+  const parsed = parseHostPortArgs(args);
+  if (!parsed) {
+    console.log(formatter.error('Missing host. Usage: /instances end-maintenance <host:port>'));
+    console.log(formatter.info('  <host:port>  Instance to remove from maintenance'));
+    console.log(formatter.info('Note: Instance must be registered in Orchestrator'));
+    return;
+  }
+
+  const { host, port } = parsed;
+  console.log(formatter.info(`Removing ${host}:${port} from maintenance mode...`));
+
+  try {
+    const success = await orchestrator.endMaintenance(host, port);
+    if (success) {
+      console.log(formatter.success(`Instance ${host}:${port} is no longer in maintenance mode.`));
+    } else {
+      console.log(formatter.error(`Failed to remove ${host}:${port} from maintenance mode.`));
+      console.log(formatter.info('Ensure the instance is registered in Orchestrator.'));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Failed to end maintenance: ${message}`));
+  }
+}
+
+/**
+ * Parse host:port argument format
+ */
+function parseHostPortArgs(args: string[]): { host: string; port: number } | null {
+  const hostArg = args.find(a => !a.startsWith('--') && a.includes(':'));
+  if (!hostArg) {
+    // Try host without port
+    const simpleHost = args.find(a => !a.startsWith('--') && !a.includes(':'));
+    if (simpleHost) {
+      return { host: simpleHost, port: 3306 };
+    }
+    return null;
+  }
+
+  const [host, portStr] = hostArg.split(':');
+  const port = parseInt(portStr || '3306', 10);
+  return { host, port };
 }
 
 export default instancesCommand;

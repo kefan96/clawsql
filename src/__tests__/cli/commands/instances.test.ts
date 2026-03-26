@@ -43,10 +43,24 @@ jest.mock('../../../core/discovery/scanner', () => ({
   probeMySQLInstance: jest.fn(),
 }));
 
+// Mock mysql2/promise
+jest.mock('mysql2/promise', () => ({
+  createConnection: jest.fn(),
+}));
+
+// Mock mysql-client
+jest.mock('../../../utils/mysql-client', () => ({
+  getMySQLClient: jest.fn(),
+}));
+
 import { instancesCommand } from '../../../cli/commands/instances';
 import { probeMySQLInstance, NetworkScanner } from '../../../core/discovery/scanner';
+import { getMySQLClient } from '../../../utils/mysql-client';
+import mysql from 'mysql2/promise';
 
 const mockProbeMySQLInstance = probeMySQLInstance as jest.MockedFunction<typeof probeMySQLInstance>;
+const mockGetMySQLClient = getMySQLClient as jest.MockedFunction<typeof getMySQLClient>;
+const mockCreateConnection = mysql.createConnection as jest.MockedFunction<typeof mysql.createConnection>;
 
 describe('instancesCommand', () => {
   let mockContext: any;
@@ -65,6 +79,14 @@ describe('instancesCommand', () => {
         getTopology: jest.fn(),
         discoverInstance: jest.fn().mockResolvedValue(true),
         forgetInstance: jest.fn().mockResolvedValue(true),
+        setReadOnly: jest.fn().mockResolvedValue(true),
+        setWriteable: jest.fn().mockResolvedValue(true),
+        startSlave: jest.fn().mockResolvedValue(true),
+        stopSlave: jest.fn().mockResolvedValue(true),
+        resetSlave: jest.fn().mockResolvedValue(true),
+        relocateReplicas: jest.fn().mockResolvedValue(true),
+        beginMaintenance: jest.fn().mockResolvedValue(true),
+        endMaintenance: jest.fn().mockResolvedValue(true),
       },
       formatter: {
         header: jest.fn().mockImplementation((s: string) => `=== ${s} ===`),
@@ -287,6 +309,243 @@ describe('instancesCommand', () => {
       await instancesCommand.handler(['forget', '192.168.1.10'], mockContext);
 
       expect(mockContext.orchestrator.forgetInstance).toHaveBeenCalledWith('192.168.1.10', 3306);
+    });
+  });
+
+  // ===========================================================================
+  // Replication Control Commands
+  // ===========================================================================
+
+  describe('replication command', () => {
+    it('should show error when host is missing', async () => {
+      await instancesCommand.handler(['replication'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing host'));
+    });
+
+    it('should show replication status', async () => {
+      const mockConnection = {
+        execute: jest.fn().mockResolvedValue([[
+          {
+            Master_Host: 'primary',
+            Master_Port: 3306,
+            Master_User: 'repl',
+            Slave_IO_Running: 'Yes',
+            Slave_SQL_Running: 'Yes',
+            Relay_Log_File: 'relay.000001',
+            Relay_Log_Pos: 123,
+            Exec_Master_Log_Pos: 456,
+            Seconds_Behind_Master: 0,
+            Last_IO_Error: null,
+            Last_SQL_Error: null,
+          },
+        ]]),
+        end: jest.fn(),
+      };
+      mockCreateConnection.mockResolvedValue(mockConnection);
+      mockGetMySQLClient.mockReturnValue({
+        getReplicationStatus: jest.fn().mockResolvedValue({
+          ioRunning: true,
+          sqlRunning: true,
+          secondsBehind: 0,
+        }),
+      });
+
+      await instancesCommand.handler(['replication', 'replica:3306'], mockContext);
+
+      expect(mockContext.formatter.header).toHaveBeenCalled();
+      expect(mockContext.formatter.success).toHaveBeenCalled();
+    });
+
+    it('should show info when no replication configured', async () => {
+      mockGetMySQLClient.mockReturnValue({
+        getReplicationStatus: jest.fn().mockResolvedValue(null),
+      });
+
+      await instancesCommand.handler(['replication', 'primary:3306'], mockContext);
+
+      expect(mockContext.formatter.info).toHaveBeenCalledWith(expect.stringContaining('No replication configured'));
+    });
+
+    it('should handle errors', async () => {
+      mockGetMySQLClient.mockReturnValue({
+        getReplicationStatus: jest.fn().mockRejectedValue(new Error('Connection refused')),
+      });
+
+      await instancesCommand.handler(['replication', 'host:3306'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('setReadOnly command', () => {
+    it('should show error when host is missing', async () => {
+      await instancesCommand.handler(['read-only'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing host'));
+    });
+
+    it('should set instance read-only', async () => {
+      await instancesCommand.handler(['read-only', 'replica:3306'], mockContext);
+
+      expect(mockContext.orchestrator.setReadOnly).toHaveBeenCalledWith('replica', 3306);
+      expect(mockContext.formatter.success).toHaveBeenCalled();
+    });
+
+    it('should handle failure', async () => {
+      mockContext.orchestrator.setReadOnly.mockResolvedValue(false);
+
+      await instancesCommand.handler(['read-only', 'replica:3306'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('setWriteable command', () => {
+    it('should show error when host is missing', async () => {
+      await instancesCommand.handler(['writeable'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing host'));
+    });
+
+    it('should set instance writeable', async () => {
+      await instancesCommand.handler(['writeable', 'primary:3306'], mockContext);
+
+      expect(mockContext.orchestrator.setWriteable).toHaveBeenCalledWith('primary', 3306);
+      expect(mockContext.formatter.success).toHaveBeenCalled();
+    });
+  });
+
+  describe('startSlave command', () => {
+    it('should show error when host is missing', async () => {
+      await instancesCommand.handler(['start-slave'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing host'));
+    });
+
+    it('should start replication', async () => {
+      await instancesCommand.handler(['start-slave', 'replica:3306'], mockContext);
+
+      expect(mockContext.orchestrator.startSlave).toHaveBeenCalledWith('replica', 3306);
+      expect(mockContext.formatter.success).toHaveBeenCalled();
+    });
+  });
+
+  describe('stopSlave command', () => {
+    it('should show error when host is missing', async () => {
+      await instancesCommand.handler(['stop-slave'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing host'));
+    });
+
+    it('should stop replication', async () => {
+      await instancesCommand.handler(['stop-slave', 'replica:3306'], mockContext);
+
+      expect(mockContext.orchestrator.stopSlave).toHaveBeenCalledWith('replica', 3306);
+      expect(mockContext.formatter.success).toHaveBeenCalled();
+    });
+  });
+
+  describe('resetSlave command', () => {
+    it('should show error when host is missing', async () => {
+      await instancesCommand.handler(['reset-slave'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing host'));
+    });
+
+    it('should require confirmation', async () => {
+      await instancesCommand.handler(['reset-slave', 'replica:3306'], mockContext);
+
+      expect(mockContext.formatter.warning).toHaveBeenCalled();
+      expect(mockContext.orchestrator.resetSlave).not.toHaveBeenCalled();
+    });
+
+    it('should reset replication with confirmation', async () => {
+      await instancesCommand.handler(['reset-slave', 'replica:3306', '--confirm'], mockContext);
+
+      expect(mockContext.orchestrator.resetSlave).toHaveBeenCalledWith('replica', 3306);
+      expect(mockContext.formatter.success).toHaveBeenCalled();
+    });
+  });
+
+  describe('relocate command', () => {
+    it('should show error when arguments are missing', async () => {
+      await instancesCommand.handler(['relocate'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing required'));
+    });
+
+    it('should show error when master is missing', async () => {
+      await instancesCommand.handler(['relocate', '--host', 'replica:3306'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing required'));
+    });
+
+    it('should relocate replica', async () => {
+      await instancesCommand.handler(['relocate', '--host', 'replica:3306', '--master', 'new-master:3306'], mockContext);
+
+      expect(mockContext.orchestrator.relocateReplicas).toHaveBeenCalledWith('replica', 3306, 'new-master', 3306);
+      expect(mockContext.formatter.success).toHaveBeenCalled();
+    });
+
+    it('should handle failure', async () => {
+      mockContext.orchestrator.relocateReplicas.mockResolvedValue(false);
+
+      await instancesCommand.handler(['relocate', '--host', 'replica:3306', '--master', 'new-master:3306'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('beginMaintenance command', () => {
+    it('should show error when host is missing', async () => {
+      await instancesCommand.handler(['begin-maintenance'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing host'));
+    });
+
+    it('should begin maintenance with defaults', async () => {
+      await instancesCommand.handler(['begin-maintenance', 'replica:3306'], mockContext);
+
+      expect(mockContext.orchestrator.beginMaintenance).toHaveBeenCalledWith(
+        'replica', 3306, 'Manual maintenance via ClawSQL', 60
+      );
+      expect(mockContext.formatter.success).toHaveBeenCalled();
+    });
+
+    it('should use custom reason and duration', async () => {
+      await instancesCommand.handler([
+        'begin-maintenance', 'replica:3306',
+        '--reason', 'OS upgrade',
+        '--duration', '30'
+      ], mockContext);
+
+      expect(mockContext.orchestrator.beginMaintenance).toHaveBeenCalledWith(
+        'replica', 3306, 'OS upgrade', 30
+      );
+    });
+  });
+
+  describe('endMaintenance command', () => {
+    it('should show error when host is missing', async () => {
+      await instancesCommand.handler(['end-maintenance'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Missing host'));
+    });
+
+    it('should end maintenance', async () => {
+      await instancesCommand.handler(['end-maintenance', 'replica:3306'], mockContext);
+
+      expect(mockContext.orchestrator.endMaintenance).toHaveBeenCalledWith('replica', 3306);
+      expect(mockContext.formatter.success).toHaveBeenCalled();
+    });
+
+    it('should handle failure', async () => {
+      mockContext.orchestrator.endMaintenance.mockResolvedValue(false);
+
+      await instancesCommand.handler(['end-maintenance', 'replica:3306'], mockContext);
+
+      expect(mockContext.formatter.error).toHaveBeenCalled();
     });
   });
 });
