@@ -2,25 +2,9 @@
  * Tests for Failover Command
  */
 
-// Mock chalk ESM module
-jest.mock('chalk', () => ({
-  default: {
-    bold: (str: string) => str,
-    green: (str: string) => str,
-    yellow: (str: string) => str,
-    red: (str: string) => str,
-    blue: (str: string) => str,
-    cyan: (str: string) => str,
-    gray: (str: string) => str,
-  },
-  green: (str: string) => str,
-  yellow: (str: string) => str,
-  red: (str: string) => str,
-  bold: (str: string) => str,
-  cyan: (str: string) => str,
-  blue: (str: string) => str,
-  gray: (str: string) => str,
-}));
+// Mock ESM modules
+jest.mock('chalk', () => require('../../__mocks__/esm-mocks').chalkMock());
+jest.mock('ora', () => require('../../__mocks__/esm-mocks').oraMock());
 
 import { failoverCommand } from '../../../cli/commands/failover';
 

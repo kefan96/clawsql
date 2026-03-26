@@ -108,17 +108,11 @@ export class REPL {
       this.orchestratorConnected = connected;
     });
 
-    // Handle SIGINT (Ctrl+C)
-    process.on('SIGINT', () => {
-      console.log();
-      // The raw input handler handles Ctrl+C internally
-    });
-
     // Print welcome banner
     this.printBanner();
 
     // Start the main input loop with raw input handler
-    this.runInputLoop();
+    void this.runInputLoop();
   }
 
   /**
@@ -131,13 +125,15 @@ export class REPL {
         process.stdout.write(this.getPrompt());
         const result = await this.rawInputHandler!.readLine();
 
+        // Ctrl+D - exit requested
+        if (result.exitRequested) {
+          this.stop();
+          return;
+        }
+
+        // Ctrl+C - cancel current input, continue
         if (result.cancelled) {
-          if (this.running) {
-            // Ctrl+C was pressed, show new prompt
-            console.log();
-            continue;
-          }
-          break;
+          continue;
         }
 
         const input = result.value.trim();
@@ -152,7 +148,10 @@ export class REPL {
 
         // Handle special commands
         if (input === '/exit' || input === '/quit' || input === '/q') {
-          this.stop();
+          // Move up one line (console.log moved us down), clear, and show goodbye
+          process.stdout.write('\x1B[1A\r\x1B[K');
+          process.stdout.write(this.getPrompt() + input + ' ' + theme.primary('Goodbye!') + '\n');
+          this.stop(false);
           return;
         }
 
@@ -195,16 +194,23 @@ export class REPL {
   /**
    * Stop the REPL session
    */
-  stop(): void {
+  stop(printGoodbye: boolean = true): void {
     // Set running to false immediately to prevent prompt from showing
     this.running = false;
+
+    // Cleanup raw input handler (disable bracketed paste mode)
+    if (this.rawInputHandler) {
+      this.rawInputHandler.cleanup();
+    }
 
     if (this.keepAlive) {
       clearInterval(this.keepAlive);
       this.keepAlive = null;
     }
     this.saveHistory();
-    console.log(theme.primary('Goodbye!'));
+    if (printGoodbye) {
+      process.stdout.write(' ' + theme.primary('Goodbye!\n'));
+    }
     process.exit(0);
   }
 
@@ -252,16 +258,35 @@ export class REPL {
       const frame = spinnerFrames[frameIndex % spinnerFrames.length];
       const msg = thinkingMessages[msgIndex % thinkingMessages.length];
       // Clear line before writing to handle shorter messages after longer ones
-      process.stdout.write(`\r\x1b[K${frame} ${msg}`);
+      process.stdout.write(`\r\x1b[K${frame} ${msg}  ${theme.muted('(double tap ESC to stop)')}`);
       frameIndex++;
       if (frameIndex % 20 === 0) msgIndex++; // Change message every ~2s
     }, 100);
 
     // Set up ESC key listener to abort AI thinking
+    // Require double-ESC to abort: two ESC presses within 500ms
+    // This prevents spurious terminal-generated ESC events from triggering abort
+    let lastEscTime = 0;
+    const doubleEscThresholdMs = 500;
+    let abortResolve: (() => void) | null = null;
+    const abortPromise = new Promise<void>((resolve) => {
+      abortResolve = resolve;
+    });
+
     const escListener = (data: string) => {
-      if (data === '\x1B') {
+      // Ignore if not ESC
+      if (data !== '\x1B') {
+        return;
+      }
+
+      const now = Date.now();
+
+      // Check for double-ESC (two ESCs within threshold)
+      if (now - lastEscTime < doubleEscThresholdMs && !wasAborted) {
+        // Double-ESC detected - abort!
         wasAborted = true;
         abortController.abort();
+        process.stdin.off('data', escListener);
 
         // Clean up spinner
         if (spinnerInterval) {
@@ -269,39 +294,59 @@ export class REPL {
           spinnerInterval = null;
         }
 
-        // Show stopped message with elapsed time
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        process.stdout.write(`\r\x1b[K⏹ Stopped (${elapsed}s)\n\n`);
+        // Show stopped message
+        const elapsed = ((now - startTime) / 1000).toFixed(1);
+        process.stdout.write(`\r\x1b[K${theme.warning('⏹ Stopped')} (${elapsed}s)\n`);
+
+        // Immediately resolve the abort promise to unblock the main flow
+        // This ensures the prompt appears without waiting for agent cleanup
+        if (abortResolve) {
+          abortResolve();
+        }
+      } else {
+        // First ESC or too slow - just record the time
+        lastEscTime = now;
       }
     };
 
-    // Enable raw mode temporarily to catch ESC
+    // Enable raw mode and add listener
     const wasRaw = process.stdin.isRaw;
     if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
+      if (wasRaw !== true) {
+        process.stdin.setRawMode(true);
+      }
     }
     process.stdin.on('data', escListener);
 
     try {
-      await this.agent!.process(input, (chunk: string) => {
-        // Stop spinner on first chunk
-        if (!gotFirstChunk) {
-          gotFirstChunk = true;
-          if (spinnerInterval) {
-            clearInterval(spinnerInterval);
-            spinnerInterval = null;
+      // Race between the agent processing and the abort promise
+      await Promise.race([
+        this.agent!.process(input, (chunk: string) => {
+          // Ignore chunks if already aborted
+          if (wasAborted) {
+            return;
           }
-          // Clear the spinner line
-          process.stdout.write('\r\x1b[K');
-        }
 
-        const { text, backspace } = processor.process(chunk);
-        if (backspace > 0) {
-          process.stdout.write(`\x1b[${backspace}D\x1b[K${text}`);
-        } else if (text) {
-          process.stdout.write(text);
-        }
-      }, abortController.signal);
+          // Stop spinner on first chunk
+          if (!gotFirstChunk) {
+            gotFirstChunk = true;
+            if (spinnerInterval) {
+              clearInterval(spinnerInterval);
+              spinnerInterval = null;
+            }
+            // Clear the spinner line
+            process.stdout.write('\r\x1b[K');
+          }
+
+          const { text, backspace } = processor.process(chunk);
+          if (backspace > 0) {
+            process.stdout.write(`\x1b[${backspace}D\x1b[K${text}`);
+          } else if (text) {
+            process.stdout.write(text);
+          }
+        }, abortController.signal),
+        abortPromise,
+      ]);
 
       // Make sure spinner is stopped
       if (spinnerInterval) {

@@ -6,29 +6,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// Mock chalk ESM module
-const mockChalkFn = (str: string) => str;
-mockChalkFn.bold = mockChalkFn;
-mockChalkFn.dim = mockChalkFn;
-mockChalkFn.cyan = mockChalkFn;
-mockChalkFn.green = mockChalkFn;
-mockChalkFn.yellow = mockChalkFn;
-mockChalkFn.red = mockChalkFn;
-mockChalkFn.blue = mockChalkFn;
-mockChalkFn.magenta = mockChalkFn;
-mockChalkFn.gray = mockChalkFn;
-mockChalkFn.white = mockChalkFn;
-mockChalkFn.black = mockChalkFn;
-mockChalkFn.bgCyan = mockChalkFn;
-mockChalkFn.bgGreen = mockChalkFn;
-mockChalkFn.bgRed = mockChalkFn;
-mockChalkFn.hex = () => mockChalkFn;
-mockChalkFn.rgb = () => mockChalkFn;
-
-jest.mock('chalk', () => ({
-  default: mockChalkFn,
-  ...mockChalkFn,
-}));
+// Mock ESM modules
+jest.mock('chalk', () => require('../__mocks__/esm-mocks').chalkMock());
 
 // Mock cli-table3
 jest.mock('cli-table3', () => {
@@ -40,16 +19,7 @@ jest.mock('cli-table3', () => {
 });
 
 // Mock ora
-jest.mock('ora', () => ({
-  default: jest.fn().mockReturnValue({
-    start: jest.fn().mockReturnThis(),
-    stop: jest.fn().mockReturnThis(),
-    succeed: jest.fn().mockReturnThis(),
-    fail: jest.fn().mockReturnThis(),
-    text: '',
-  }),
-  Ora: jest.fn(),
-}));
+jest.mock('ora', () => require('../__mocks__/esm-mocks').oraMock());
 
 // Mock process.exit
 const mockExit = jest.spyOn(process, 'exit').mockImplementation((code?: number) => {
@@ -249,8 +219,8 @@ describe('REPL', () => {
     it('should not print extra newline before Goodbye', () => {
       repl = new REPL({ historyFile: tempHistoryFile });
 
-      // Capture console.log output
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+      // Capture process.stdout.write output (stop() uses process.stdout.write now)
+      const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
       try {
         repl.stop();
@@ -259,14 +229,14 @@ describe('REPL', () => {
       }
 
       // Find the Goodbye call
-      const goodbyeCall = consoleSpy.mock.calls.find(call =>
+      const goodbyeCall = stdoutSpy.mock.calls.find(call =>
         call.some(arg => typeof arg === 'string' && arg.includes('Goodbye'))
       );
 
       // The Goodbye message should be called
       expect(goodbyeCall).toBeDefined();
 
-      consoleSpy.mockRestore();
+      stdoutSpy.mockRestore();
     });
   });
 
@@ -304,6 +274,44 @@ describe('REPL', () => {
     it('should recognize clear aliases', () => {
       const clearAliases = ['/clear', '/cls'];
       expect(clearAliases).toHaveLength(2);
+    });
+  });
+
+  describe('stop with printGoodbye parameter', () => {
+    it('should print goodbye by default', () => {
+      repl = new REPL({ historyFile: tempHistoryFile });
+
+      const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+      try {
+        repl.stop();
+      } catch (e) {
+        // Expected: process.exit throws
+      }
+
+      // Should have written goodbye message
+      expect(stdoutSpy).toHaveBeenCalled();
+      stdoutSpy.mockRestore();
+    });
+
+    it('should not print goodbye when printGoodbye is false', () => {
+      repl = new REPL({ historyFile: tempHistoryFile });
+
+      const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+      try {
+        repl.stop(false);
+      } catch (e) {
+        // Expected: process.exit throws
+      }
+
+      // Should not have written goodbye message (only the exit prompt)
+      const calls = stdoutSpy.mock.calls;
+      const hasGoodbye = calls.some(call =>
+        call.some(arg => typeof arg === 'string' && arg.includes('Goodbye'))
+      );
+      expect(hasGoodbye).toBe(false);
+      stdoutSpy.mockRestore();
     });
   });
 });

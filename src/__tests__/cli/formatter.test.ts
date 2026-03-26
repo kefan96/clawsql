@@ -2,42 +2,9 @@
  * Tests for CLI Formatter
  */
 
-// Mock chalk ESM module
-jest.mock('chalk', () => {
-  const mockChalk = {
-    bold: (str: string) => str,
-    dim: (str: string) => str,
-    cyan: (str: string) => str,
-    green: (str: string) => str,
-    yellow: (str: string) => str,
-    red: (str: string) => str,
-    blue: (str: string) => str,
-    magenta: (str: string) => str,
-    gray: (str: string) => str,
-    white: (str: string) => str,
-    black: (str: string) => str,
-    bgCyan: (str: string) => str,
-    bgGreen: (str: string) => str,
-    bgRed: (str: string) => str,
-    italic: (str: string) => str,
-    underline: (str: string) => str,
-  };
-  // Create a chainable color function
-  const createChainable = () => {
-    const fn = (str: string) => str;
-    Object.assign(fn, mockChalk);
-    return fn;
-  };
-  return {
-    __esModule: true,
-    default: {
-      ...mockChalk,
-      hex: createChainable,
-      rgb: createChainable,
-    },
-    ...mockChalk,
-  };
-});
+// Mock ESM modules
+jest.mock('chalk', () => require('../__mocks__/esm-mocks').chalkMock());
+jest.mock('ora', () => require('../__mocks__/esm-mocks').oraMock());
 
 // Mock cli-table3
 jest.mock('cli-table3', () => {
@@ -137,7 +104,7 @@ describe('Formatter', () => {
       const formatter = new Formatter({ colors: false });
       const result = formatter.warning('Be careful');
 
-      expect(result).toContain('⚠');
+      expect(result).toContain('◆');
       expect(result).toContain('Be careful');
     });
   });
@@ -147,7 +114,7 @@ describe('Formatter', () => {
       const formatter = new Formatter({ colors: false });
       const result = formatter.info('Information');
 
-      expect(result).toContain('ℹ');
+      expect(result).toContain('○');
       expect(result).toContain('Information');
     });
   });

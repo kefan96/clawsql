@@ -24,6 +24,7 @@ export async function isOpenClawAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
     const proc = spawn('openclaw', ['status', '--json'], {
       timeout: 5000,
+      stdio: ['ignore', 'pipe', 'pipe'], // Don't inherit stdin
     });
 
     let output = '';
@@ -75,14 +76,15 @@ export async function sendToOpenClaw(
 
     const proc = spawn('openclaw', args, {
       timeout: options?.timeout || 120000,
+      stdio: ['ignore', 'pipe', 'pipe'], // Don't inherit stdin
     });
 
     let stdout = '';
     let stderr = '';
 
-    // Handle abort signal
+    // Handle abort signal - use SIGKILL for immediate termination
     const abortHandler = () => {
-      proc.kill('SIGTERM');
+      proc.kill('SIGKILL');
       reject(new DOMException('The operation was aborted', 'AbortError'));
     };
 
@@ -107,7 +109,10 @@ export async function sendToOpenClaw(
       }
       if (code === 0) {
         resolve(stdout.trim());
-      } else if (code !== null) {
+      } else if (code === null) {
+        // Process was killed by signal (e.g., SIGKILL during abort)
+        reject(new DOMException('The operation was aborted', 'AbortError'));
+      } else {
         reject(new Error(`OpenClaw agent failed: ${stderr || stdout}`));
       }
     });
@@ -149,14 +154,22 @@ export async function sendToOpenClawStream(
 
     const proc = spawn('openclaw', args, {
       timeout: options?.timeout || 120000,
+      stdio: ['ignore', 'pipe', 'pipe'], // Don't inherit stdin
     });
+
+    // Check if already aborted before we started
+    if (options?.signal?.aborted) {
+      proc.kill('SIGKILL');
+      reject(new DOMException('The operation was aborted', 'AbortError'));
+      return;
+    }
 
     let fullOutput = '';
     let stderr = '';
 
-    // Handle abort signal
+    // Handle abort signal - use SIGKILL for immediate termination
     const abortHandler = () => {
-      proc.kill('SIGTERM');
+      proc.kill('SIGKILL');
       reject(new DOMException('The operation was aborted', 'AbortError'));
     };
 
@@ -184,7 +197,10 @@ export async function sendToOpenClawStream(
       }
       if (code === 0) {
         resolve(fullOutput.trim());
-      } else if (code !== null) {
+      } else if (code === null) {
+        // Process was killed by signal (e.g., SIGKILL during abort)
+        reject(new DOMException('The operation was aborted', 'AbortError'));
+      } else {
         reject(new Error(`OpenClaw agent failed: ${stderr || fullOutput}`));
       }
     });
@@ -214,6 +230,7 @@ export async function scheduleCron(
       '--prompt', prompt,
     ], {
       timeout: 10000,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     let stdout = '';
@@ -255,6 +272,7 @@ export async function sendNotification(
       '--message', message,
     ], {
       timeout: 30000,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     let stdout = '';

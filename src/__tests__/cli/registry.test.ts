@@ -2,28 +2,9 @@
  * Tests for CLI Registry
  */
 
-// Mock chalk ESM module
-jest.mock('chalk', () => ({
-  default: {
-    bold: (str: string) => str,
-    dim: (str: string) => str,
-    cyan: (str: string) => str,
-    green: (str: string) => str,
-    yellow: (str: string) => str,
-    red: (str: string) => str,
-    blue: (str: string) => str,
-    magenta: (str: string) => str,
-    gray: (str: string) => str,
-    white: (str: string) => str,
-  },
-  bold: (str: string) => str,
-  cyan: (str: string) => str,
-  green: (str: string) => str,
-  yellow: (str: string) => str,
-  red: (str: string) => str,
-  blue: (str: string) => str,
-  gray: (str: string) => str,
-}));
+// Mock ESM modules
+jest.mock('chalk', () => require('../__mocks__/esm-mocks').chalkMock());
+jest.mock('ora', () => require('../__mocks__/esm-mocks').oraMock());
 
 // Mock cli-table3
 jest.mock('cli-table3', () => {

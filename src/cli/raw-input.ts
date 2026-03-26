@@ -24,6 +24,7 @@ export interface Suggestion {
 export interface InputResult {
   value: string;
   cancelled: boolean;
+  exitRequested?: boolean; // Ctrl+D was pressed - user wants to exit
 }
 
 /**
@@ -59,10 +60,51 @@ export class RawInputHandler {
   private prompt: string;
   private allCommands: Suggestion[];
   private lastSuggestionLineCount: number = 0;
+  private inBracketedPaste: boolean = false;
+  private pasteBuffer: string = '';
+  private pasteTimeout: NodeJS.Timeout | null = null;
+  private static readonly PASTE_TIMEOUT_MS = 5000; // 5 second timeout for bracketed paste
 
   constructor(prompt: string = 'clawsql ❯ ') {
     this.prompt = prompt;
     this.allCommands = getAllCommandSuggestions();
+    this.enableBracketedPaste();
+  }
+
+  /**
+   * Enable bracketed paste mode (for better paste handling)
+   */
+  private enableBracketedPaste(): void {
+    if (process.stdout.isTTY) {
+      process.stdout.write('\x1B[?2004h');
+    }
+  }
+
+  /**
+   * Disable bracketed paste mode
+   */
+  private disableBracketedPaste(): void {
+    if (process.stdout.isTTY) {
+      process.stdout.write('\x1B[?2004l');
+    }
+  }
+
+  /**
+   * Clear the paste timeout
+   */
+  private clearPasteTimeout(): void {
+    if (this.pasteTimeout) {
+      clearTimeout(this.pasteTimeout);
+      this.pasteTimeout = null;
+    }
+  }
+
+  /**
+   * Cleanup - call when done with the handler
+   */
+  cleanup(): void {
+    this.clearPasteTimeout();
+    this.disableBracketedPaste();
   }
 
   /**
@@ -70,6 +112,7 @@ export class RawInputHandler {
    */
   private getVisiblePromptLength(): number {
     // Strip ANSI escape codes to get visible character count
+    // eslint-disable-next-line no-control-regex
     return this.prompt.replace(/\x1B\[[0-9;]*m/g, '').length;
   }
 
@@ -115,6 +158,7 @@ export class RawInputHandler {
           resolve({
             value: result.value ?? this.buffer,
             cancelled: result.cancelled ?? false,
+            exitRequested: result.exitRequested ?? false,
           });
         }
       };
@@ -126,20 +170,98 @@ export class RawInputHandler {
   /**
    * Handle keyboard input
    */
-  private handleInput(data: string): { done?: boolean; value?: string; cancelled?: boolean } {
+  private handleInput(data: string): { done?: boolean; value?: string; cancelled?: boolean; exitRequested?: boolean } {
+    // Handle bracketed paste mode
+    if (data.startsWith('\x1B[200~')) {
+      // Start of bracketed paste
+      this.inBracketedPaste = true;
+      this.pasteBuffer = '';
+
+      // Check if the end sequence is also in this chunk (complete paste in one chunk)
+      const endIdx = data.indexOf('\x1B[201~');
+      if (endIdx !== -1) {
+        // Complete paste in single chunk - extract content between markers
+        const content = data.slice(6, endIdx); // Between start and end sequences
+        this.inBracketedPaste = false;
+        this.processPaste(content);
+        return {};
+      }
+
+      // Set timeout to prevent getting stuck if end sequence never arrives
+      this.clearPasteTimeout();
+      this.pasteTimeout = setTimeout(() => {
+        if (this.inBracketedPaste && this.pasteBuffer) {
+          // Timeout - process what we have and exit bracketed paste mode
+          this.inBracketedPaste = false;
+          this.processPaste(this.pasteBuffer);
+          this.pasteBuffer = '';
+        }
+      }, RawInputHandler.PASTE_TIMEOUT_MS);
+      // Extract any content after the start sequence
+      const afterStart = data.slice(6); // '\x1B[200~'.length = 6
+      if (afterStart) {
+        this.pasteBuffer += afterStart;
+      }
+      return {};
+    }
+
+    if (this.inBracketedPaste) {
+      if (data.includes('\x1B[201~')) {
+        // End of bracketed paste
+        this.clearPasteTimeout();
+        this.inBracketedPaste = false;
+        // Extract content before the end sequence
+        const endIndex = data.indexOf('\x1B[201~');
+        this.pasteBuffer += data.slice(0, endIndex);
+        // Process the pasted content
+        this.processPaste(this.pasteBuffer);
+        this.pasteBuffer = '';
+        return {};
+      } else {
+        // Continue collecting paste content
+        this.pasteBuffer += data;
+        return {};
+      }
+    }
+
+    // Ignore stray end bracketed paste sequence (can happen after timeout)
+    if (data.includes('\x1B[201~')) {
+      return {};
+    }
+
     // Handle special keys
     if (data === '\x03') { // Ctrl+C
+      // Cancel bracketed paste mode if stuck
+      this.clearPasteTimeout();
+      this.inBracketedPaste = false;
+      this.pasteBuffer = '';
       this.clearSuggestions();
       console.log();
       return { done: true, cancelled: true };
     }
 
     if (data === '\x04') { // Ctrl+D
+      // Cancel bracketed paste mode if stuck
+      this.clearPasteTimeout();
+      this.inBracketedPaste = false;
+      this.pasteBuffer = '';
       this.clearSuggestions();
-      return { done: true, cancelled: true };
+      return { done: true, cancelled: true, exitRequested: true };
     }
 
     if (data === '\x1B') { // Escape
+      // Cancel bracketed paste mode if stuck
+      if (this.inBracketedPaste) {
+        this.clearPasteTimeout();
+        this.inBracketedPaste = false;
+        // Process what we have so far
+        if (this.pasteBuffer) {
+          this.processPaste(this.pasteBuffer);
+        }
+        this.pasteBuffer = '';
+        this.render();
+        return {};
+      }
       if (this.showingSuggestions) {
         this.clearSuggestions();
         this.showingSuggestions = false;
@@ -211,16 +333,33 @@ export class RawInputHandler {
       return {};
     }
 
-    // Regular character
-    if (data.length === 1 && data >= ' ' && data <= '~') {
-      this.buffer += data;
-      this.updateSuggestions();
-      this.render();
+    // Regular character or multi-character paste (without bracketed paste mode)
+    if (data.length >= 1) {
+      // Filter out control characters and handle multi-character input
+      const printableChars = data.split('').filter(c => c >= ' ' && c <= '~').join('');
+      if (printableChars.length > 0) {
+        this.buffer += printableChars;
+        this.updateSuggestions();
+        this.render();
+      }
       return {};
     }
 
     // Ignore other control sequences
     return {};
+  }
+
+  /**
+   * Process pasted content
+   */
+  private processPaste(content: string): void {
+    // Filter out control characters but keep the paste content
+    const printableChars = content.split('').filter(c => c >= ' ' && c <= '~' || c === '\t').join('');
+    if (printableChars.length > 0) {
+      this.buffer += printableChars;
+      this.updateSuggestions();
+      this.render();
+    }
   }
 
   /**

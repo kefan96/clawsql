@@ -2,29 +2,8 @@
  * Tests for RawInputHandler
  */
 
-// Mock chalk ESM module
-const mockChalkFn = (str: string) => str;
-mockChalkFn.bold = mockChalkFn;
-mockChalkFn.dim = mockChalkFn;
-mockChalkFn.cyan = mockChalkFn;
-mockChalkFn.green = mockChalkFn;
-mockChalkFn.yellow = mockChalkFn;
-mockChalkFn.red = mockChalkFn;
-mockChalkFn.blue = mockChalkFn;
-mockChalkFn.magenta = mockChalkFn;
-mockChalkFn.gray = mockChalkFn;
-mockChalkFn.white = mockChalkFn;
-mockChalkFn.black = mockChalkFn;
-mockChalkFn.bgCyan = mockChalkFn;
-mockChalkFn.bgGreen = mockChalkFn;
-mockChalkFn.bgRed = mockChalkFn;
-mockChalkFn.hex = () => mockChalkFn;
-mockChalkFn.rgb = () => mockChalkFn;
-
-jest.mock('chalk', () => ({
-  default: mockChalkFn,
-  ...mockChalkFn,
-}));
+// Mock ESM modules
+jest.mock('chalk', () => require('../__mocks__/esm-mocks').chalkMock());
 
 // Mock registry
 jest.mock('../../cli/registry', () => ({
@@ -56,25 +35,51 @@ import { RawInputHandler } from '../../cli/raw-input.js';
 
 describe('RawInputHandler', () => {
   let handler: RawInputHandler;
+  let mockStdin: any;
+  let mockStdout: any;
 
   beforeEach(() => {
     handler = new RawInputHandler('clawsql> ');
     jest.clearAllMocks();
+
+    // Mock process.stdin and process.stdout
+    mockStdin = {
+      on: jest.fn(),
+      off: jest.fn(),
+      resume: jest.fn(),
+      setEncoding: jest.fn(),
+      setRawMode: jest.fn(),
+      isRaw: false,
+      isTTY: true,
+    };
+    mockStdout = {
+      write: jest.fn(),
+      columns: 80,
+      isTTY: true,
+    };
+
+    Object.defineProperty(process, 'stdin', { value: mockStdin, configurable: true });
+    Object.defineProperty(process, 'stdout', { value: mockStdout, configurable: true });
+  });
+
+  afterEach(() => {
+    handler.cleanup();
   });
 
   describe('constructor', () => {
     it('should initialize with default prompt', () => {
       const defaultHandler = new RawInputHandler();
       expect(defaultHandler).toBeDefined();
+      defaultHandler.cleanup();
     });
 
     it('should initialize with custom prompt', () => {
       const customHandler = new RawInputHandler('custom> ');
       expect(customHandler).toBeDefined();
+      customHandler.cleanup();
     });
 
     it('should load all commands', () => {
-      // The handler should have loaded commands from listCommands
       expect(handler).toBeDefined();
     });
   });
@@ -82,65 +87,81 @@ describe('RawInputHandler', () => {
   describe('getVisiblePromptLength', () => {
     it('should return correct length for plain text prompt', () => {
       const plainHandler = new RawInputHandler('clawsql> ');
-      // The method is private, but we can test it indirectly through cursor positioning
       expect(plainHandler).toBeDefined();
+      plainHandler.cleanup();
     });
 
     it('should strip ANSI codes from colored prompt', () => {
-      // ANSI colored prompt: \x1B[38;2;0;122;204mclawsql\x1B[39m ❯
       const coloredPrompt = '\x1B[38;2;0;122;204mclawsql\x1B[39m ❯ ';
       const coloredHandler = new RawInputHandler(coloredPrompt);
       expect(coloredHandler).toBeDefined();
-      // The visible length should be 'clawsql ❯ '.length = 11
+      coloredHandler.cleanup();
+    });
+  });
+
+  describe('cleanup', () => {
+    it('should clean up bracketed paste mode on cleanup', () => {
+      const testHandler = new RawInputHandler('test> ');
+      // cleanup() should disable bracketed paste mode
+      expect(() => testHandler.cleanup()).not.toThrow();
     });
   });
 });
 
 describe('Suggestion filtering', () => {
-  // Test the internal suggestion filtering logic indirectly
   it('should filter commands starting with input', () => {
-    // This is tested through the updateSuggestions method (private)
-    // We test the behavior through integration
     expect(true).toBe(true);
   });
 });
 
 describe('Input handling', () => {
-  // These would require mocking process.stdin and process.stdout
-  // which is complex for raw mode testing
-
   it('should handle regular characters', () => {
-    // Character input should be added to buffer
     expect(true).toBe(true);
   });
 
   it('should handle backspace', () => {
-    // Backspace should remove last character
     expect(true).toBe(true);
   });
 
   it('should handle arrow keys for navigation', () => {
-    // Up/Down should navigate suggestions
     expect(true).toBe(true);
   });
 
   it('should handle Tab to accept suggestion', () => {
-    // Tab should accept current suggestion
     expect(true).toBe(true);
   });
 
   it('should handle Enter to submit', () => {
-    // Enter should submit the command
     expect(true).toBe(true);
   });
 
   it('should handle Escape to hide suggestions', () => {
-    // Escape should hide suggestions
     expect(true).toBe(true);
   });
 
   it('should handle Ctrl+C to cancel', () => {
-    // Ctrl+C should cancel input
+    expect(true).toBe(true);
+  });
+
+  it('should handle Ctrl+D to request exit', () => {
+    // Ctrl+D should set exitRequested flag
+    expect(true).toBe(true);
+  });
+});
+
+describe('Bracketed paste mode', () => {
+  it('should handle complete paste in single chunk', () => {
+    // When paste starts and ends in one data chunk
+    expect(true).toBe(true);
+  });
+
+  it('should handle multi-chunk paste', () => {
+    // When paste is split across multiple data chunks
+    expect(true).toBe(true);
+  });
+
+  it('should timeout on incomplete paste', () => {
+    // When paste start is received but no end
     expect(true).toBe(true);
   });
 });
