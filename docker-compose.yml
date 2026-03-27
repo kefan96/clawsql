@@ -189,6 +189,7 @@ services:
       MYSQL_PASSWORD: ${METADATA_DB_PASSWORD:-clawsql_password}
     volumes:
       - metadata-mysql-data:/var/lib/mysql
+      - ./init/metadata.sql:/docker-entrypoint-initdb.d/01-metadata.sql
     networks:
       - clawsql-network
     restart: unless-stopped
