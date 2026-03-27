@@ -6,6 +6,86 @@
  */
 
 import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+/**
+ * Known registry mirrors for different regions
+ */
+export const REGISTRY_MIRRORS = {
+  china: 'docker.m.daocloud.io',
+  aliyun: 'registry.cn-hangzhou.aliyuncs.com',
+  ustc: 'docker.mirrors.ustc.edu.cn',
+  tencent: 'mirror.ccs.tencentyun.com',
+};
+
+/**
+ * Configure registry mirror for podman
+ */
+export async function configureRegistryMirror(
+  runtime: 'docker' | 'podman',
+  mirror: string
+): Promise<boolean> {
+  if (runtime === 'podman') {
+    // Try user-level config first
+    const userConfigDir = path.join(os.homedir(), '.config', 'containers', 'registries.conf.d');
+    const systemConfigDir = '/etc/containers/registries.conf.d';
+
+    const configContent = `[[registry]]
+prefix = "docker.io"
+location = "docker.io"
+
+[[registry.mirror]]
+location = "${mirror}"
+`;
+
+    // Try user config first (no sudo needed)
+    try {
+      if (!fs.existsSync(userConfigDir)) {
+        fs.mkdirSync(userConfigDir, { recursive: true });
+      }
+      const userConfigFile = path.join(userConfigDir, 'clawsql-mirror.conf');
+      fs.writeFileSync(userConfigFile, configContent);
+      return true;
+    } catch {
+      // User config failed, try system config (may need sudo)
+      try {
+        if (!fs.existsSync(systemConfigDir)) {
+          fs.mkdirSync(systemConfigDir, { recursive: true });
+        }
+        const systemConfigFile = path.join(systemConfigDir, 'clawsql-mirror.conf');
+        fs.writeFileSync(systemConfigFile, configContent);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  // For Docker, configure daemon.json
+  if (runtime === 'docker') {
+    const daemonJsonPath = '/etc/docker/daemon.json';
+
+    try {
+      let existingConfig: Record<string, unknown> = {};
+      if (fs.existsSync(daemonJsonPath)) {
+        const existing = fs.readFileSync(daemonJsonPath, 'utf-8');
+        existingConfig = JSON.parse(existing);
+      }
+      existingConfig['registry-mirrors'] = [mirror];
+      fs.writeFileSync(daemonJsonPath, JSON.stringify(existingConfig, null, 2));
+
+      // Restart docker to apply changes
+      console.log('Restarting Docker to apply registry mirror...');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
 
 /**
  * Docker runtime information

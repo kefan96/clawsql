@@ -15,6 +15,7 @@ services:
   # ClawSQL Application (Node.js)
   # =============================================================================
   clawsql:
+    image: clawsql/clawsql:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.node
@@ -65,7 +66,7 @@ services:
   # Uses shared metadata MySQL database
   # =============================================================================
   orchestrator:
-    image: openarkcode/orchestrator:latest
+    image: docker.io/openarkcode/orchestrator:latest
     container_name: orchestrator
     hostname: orchestrator
     ports:
@@ -80,7 +81,7 @@ services:
   # ProxySQL - MySQL Proxy with Routing
   # =============================================================================
   proxysql:
-    image: proxysql/proxysql:latest
+    image: docker.io/proxysql/proxysql:latest
     container_name: proxysql
     hostname: proxysql
     ports:
@@ -99,7 +100,7 @@ services:
   # Prometheus - Metrics Collection
   # =============================================================================
   prometheus:
-    image: prom/prometheus:latest
+    image: docker.io/prom/prometheus:latest
     container_name: prometheus
     hostname: prometheus
     ports:
@@ -119,7 +120,7 @@ services:
   # Grafana - Visualization
   # =============================================================================
   grafana:
-    image: grafana/grafana:latest
+    image: docker.io/grafana/grafana:latest
     container_name: grafana
     hostname: grafana
     ports:
@@ -176,7 +177,7 @@ services:
   # Auto-provisioned if METADATA_DB_HOST is not set
   # =============================================================================
   metadata-mysql:
-    image: mysql:8.0
+    image: docker.io/library/mysql:8.0
     container_name: metadata-mysql
     hostname: metadata-mysql
     profiles:

@@ -103,7 +103,7 @@ const SyncSettingsSchema = z.object({
 
 const SettingsSchema = z.object({
   appName: z.string().default('ClawSQL'),
-  appVersion: z.string().default('0.1.2'),
+  appVersion: z.string().default('0.1.3'),
   debug: z.boolean().default(false),
   metadataDb: MetadataDBSettingsSchema,
   orchestrator: OrchestratorSettingsSchema,

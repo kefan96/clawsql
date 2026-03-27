@@ -9,7 +9,7 @@ services:
   # MySQL Primary (Writer)
   # =============================================================================
   mysql-primary:
-    image: mysql:8.0
+    image: docker.io/library/mysql:8.0
     container_name: mysql-primary
     hostname: mysql-primary
     ports:

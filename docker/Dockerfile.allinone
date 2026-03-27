@@ -1,0 +1,117 @@
+# ClawSQL All-in-One Docker Image
+# A single container with all ClawSQL components
+#
+# This image includes:
+# - ClawSQL API (Node.js)
+# - Orchestrator (MySQL topology management)
+# - ProxySQL (MySQL proxy)
+# - Prometheus (metrics)
+# - Grafana (visualization)
+# - Supervisord (process manager)
+
+FROM docker.io/library/node:20-alpine AS clawsql-builder
+
+WORKDIR /build
+COPY package.json package-lock.json* ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# =============================================================================
+# Final all-in-one image
+# =============================================================================
+FROM docker.io/library/alpine:3.19
+
+# Install all dependencies
+RUN apk add --no-cache \
+    nodejs \
+    npm \
+    curl \
+    wget \
+    mysql-client \
+    supervisor \
+    python3 \
+    py3-pip \
+    bash \
+    shadow \
+    && pip3 install --break-system-packages supervisor
+
+# Download and install components
+ARG ORCHESTRATOR_VERSION=latest
+ARG PROXYSQL_VERSION=latest
+ARG PROMETHEUS_VERSION=2.45.0
+ARG GRAFANA_VERSION=10.2.0
+
+# Create directories
+RUN mkdir -p /opt/clawsql \
+    /opt/orchestrator \
+    /opt/proxysql \
+    /opt/prometheus \
+    /opt/grafana \
+    /var/log/supervisor \
+    /var/lib/proxysql \
+    /var/lib/prometheus \
+    /var/lib/grafana \
+    /data
+
+# Copy ClawSQL application
+COPY --from=clawsql-builder /build/dist /opt/clawsql/dist
+COPY --from=clawsql-builder /build/node_modules /opt/clawsql/node_modules
+COPY --from=clawsql-builder /build/package.json /opt/clawsql/
+COPY docker/orchestrator/orchestrator.conf.json /etc/orchestrator.conf.json
+COPY docker/proxysql/proxysql.cnf /etc/proxysql.cnf
+COPY docker/prometheus/prometheus.yml /etc/prometheus.yml
+COPY docker/grafana/provisioning /opt/grafana/conf/provisioning
+COPY docker/grafana/dashboards /opt/grafana/dashboards
+
+# Download Orchestrator (we'll use a binary release if available, or the Docker image)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi && \
+    wget -q "https://github.com/openark/orchestrator/releases/download/v3.2.6/orchestrator-${ARCH}.tar.gz" -O /tmp/orchestrator.tar.gz || true && \
+    if [ -f /tmp/orchestrator.tar.gz ]; then \
+        tar -xzf /tmp/orchestrator.tar.gz -C /opt/orchestrator --strip-components=1 && \
+        rm /tmp/orchestrator.tar.gz; \
+    fi
+
+# Download Prometheus
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; elif [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    wget -q "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-${ARCH}.tar.gz" -O /tmp/prometheus.tar.gz && \
+    tar -xzf /tmp/prometheus.tar.gz -C /opt/prometheus --strip-components=1 && \
+    rm /tmp/prometheus.tar.gz
+
+# Download Grafana
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; elif [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    wget -q "https://dl.grafana.com/oss/release/grafana-${GRAFANA_VERSION}.linux-${ARCH}.tar.gz" -O /tmp/grafana.tar.gz && \
+    tar -xzf /tmp/grafana.tar.gz -C /opt/grafana --strip-components=1 && \
+    rm /tmp/grafana.tar.gz
+
+# ProxySQL will be installed from Alpine package or downloaded
+RUN apk add --no-cache proxysql || true
+
+# Copy supervisord configuration
+COPY docker/supervisord.conf /etc/supervisord.conf
+
+# Copy entrypoint script
+COPY docker/entrypoint-allinone.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Environment variables
+ENV NODE_ENV=production \
+    API_HOST=0.0.0.0 \
+    API_PORT=8080 \
+    ORCHESTRATOR_URL=http://localhost:3000 \
+    PROXYSQL_HOST=localhost \
+    PROXYSQL_ADMIN_PORT=6032 \
+    PROMETHEUS_URL=http://localhost:9090
+
+# Expose all ports
+EXPOSE 8080 3000 6032 6033 9090 3001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Start all services via supervisord
+CMD ["/entrypoint.sh"]

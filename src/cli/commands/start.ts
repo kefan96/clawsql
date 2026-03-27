@@ -12,6 +12,8 @@ import {
   checkDockerPrerequisites,
   getDockerInstallGuidance,
   getComposeInstallGuidance,
+  configureRegistryMirror,
+  REGISTRY_MIRRORS,
 } from '../utils/docker-prereq.js';
 
 /**
@@ -24,8 +26,17 @@ export const startCommand: Command = {
   handler: async (args: string[], ctx: CLIContext) => {
     const formatter = ctx.formatter;
     const demoMode = args.includes('--demo');
+    const allInOneMode = args.includes('--allinone');
+
+    // Parse --registry flag
+    const registryIndex = args.indexOf('--registry');
+    const registryMirror = registryIndex !== -1 && args[registryIndex + 1] ? args[registryIndex + 1] : null;
 
     console.log(formatter.header('Starting ClawSQL Platform'));
+
+    if (allInOneMode) {
+      console.log(formatter.info('Using all-in-one container mode'));
+    }
 
     // Check Docker prerequisites
     const dockerInfo = await checkDockerPrerequisites();
@@ -51,6 +62,19 @@ export const startCommand: Command = {
     console.log(formatter.keyValue('Runtime', `${dockerInfo.runtime} ${dockerInfo.version}`));
     console.log(formatter.keyValue('Compose', dockerInfo.composeCommand.join(' ')));
 
+    // Configure registry mirror if specified
+    if (registryMirror && dockerInfo.runtime) {
+      const mirror = REGISTRY_MIRRORS[registryMirror as keyof typeof REGISTRY_MIRRORS] || registryMirror;
+      console.log(formatter.info(`Configuring registry mirror: ${mirror}`));
+      const configured = await configureRegistryMirror(dockerInfo.runtime, mirror);
+      if (configured) {
+        console.log(formatter.success('Registry mirror configured'));
+      } else {
+        console.log(formatter.error('Failed to configure registry mirror'));
+        console.log(formatter.info('You may need to run with sudo or configure manually'));
+      }
+    }
+
     // Ensure Docker files are extracted
     let dockerPath: string;
     try {
@@ -69,24 +93,29 @@ export const startCommand: Command = {
     const composeEnv: Record<string, string> = {};
     const isPodmanCompose = dockerInfo.composeCommand[0] === 'podman-compose';
 
-    // Add file flags first if demo mode
-    if (demoMode) {
+    // Select compose file based on mode
+    if (allInOneMode) {
+      composeArgs.push('-f', 'docker-compose.allinone.yml');
+      console.log(formatter.info('Starting all-in-one container...'));
+    } else if (demoMode) {
       composeArgs.push('-f', 'docker-compose.yml', '-f', 'docker-compose.demo.yml');
       console.log(formatter.info('Starting with demo MySQL cluster...'));
     } else {
       console.log(formatter.info('Starting platform services (bring your own MySQL)...'));
     }
 
-    // Add metadata profile if no external DB configured
-    const metadataDbHost = process.env.METADATA_DB_HOST;
-    if (!metadataDbHost) {
-      // podman-compose doesn't support --profile flag, use environment variable instead
-      if (isPodmanCompose) {
-        composeEnv.COMPOSE_PROFILES = 'metadata';
-      } else {
-        composeArgs.push('--profile', 'metadata');
+    // Add metadata profile if no external DB configured (not for all-in-one)
+    if (!allInOneMode) {
+      const metadataDbHost = process.env.METADATA_DB_HOST;
+      if (!metadataDbHost) {
+        // podman-compose doesn't support --profile flag, use environment variable instead
+        if (isPodmanCompose) {
+          composeEnv.COMPOSE_PROFILES = 'metadata';
+        } else {
+          composeArgs.push('--profile', 'metadata');
+        }
+        console.log(formatter.info('Auto-provisioning metadata database...'));
       }
-      console.log(formatter.info('Auto-provisioning metadata database...'));
     }
 
     // Add up command
