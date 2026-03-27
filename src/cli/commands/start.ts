@@ -103,6 +103,11 @@ export const startCommand: Command = {
     } else if (demoMode) {
       composeArgs.push('-f', 'docker-compose.yml', '-f', 'docker-compose.demo.yml');
       console.log(formatter.info('Starting with demo MySQL cluster...'));
+      // Auto-detect host IP for demo MySQL containers' report_host
+      // This ensures Orchestrator can properly discover instances using their actual IP
+      const hostIp = process.env.HOST_IP || await detectHostIp();
+      composeEnv.HOST_IP = hostIp;
+      console.log(formatter.keyValue('Host IP', hostIp));
     } else {
       console.log(formatter.info('Starting platform services (bring your own MySQL)...'));
     }
@@ -216,6 +221,29 @@ async function waitForAPI(ctx: CLIContext, timeoutSeconds: number): Promise<bool
  */
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Detect the host's primary IP address
+ * Used for setting MySQL report_host in demo mode
+ */
+async function detectHostIp(): Promise<string> {
+  try {
+    const execa = (await import('execa')).default;
+    // Get the first non-localhost IP
+    const result = await execa('hostname', ['-I']);
+    const ips = result.stdout.trim().split(/\s+/);
+    // Find the first IP that's not localhost
+    for (const ip of ips) {
+      if (ip && !ip.startsWith('127.') && !ip.startsWith('169.254.')) {
+        return ip;
+      }
+    }
+    // Fallback to first IP if no suitable one found
+    return ips[0] || '127.0.0.1';
+  } catch {
+    return '127.0.0.1';
+  }
 }
 
 export default startCommand;

@@ -24,7 +24,7 @@
   "PowerOffInstancesMeta": true,
   "InstanceBulkOperationsWaitTimeoutSeconds": 300,
   "HostnameResolveMethod": "none",
-  "MySQLHostnameResolveMethod": "@@report_host",
+  "MySQLHostnameResolveMethod": "none",
   "SkipBinlogServerUnresolveCheck": true,
   "ExpiryHostnameResolvesMinutes": 60,
   "RejectHostnameResolvePattern": "",
