@@ -79,6 +79,7 @@
     "docker-compose.yml",
     "docker-compose.demo.yml",
     "init",
-    ".env.example"
+    ".env.example",
+    "package-lock.json"
   ]
 }

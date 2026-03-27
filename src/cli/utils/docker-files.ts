@@ -99,6 +99,30 @@ function getBundledDockerComposePath(): string {
 }
 
 /**
+ * Fix docker-compose paths for extracted files
+ *
+ * When running from npm install, the docker/ directory is flattened.
+ * The original docker-compose.yml has paths like:
+ *   - dockerfile: docker/Dockerfile.node
+ *   - ./docker/orchestrator/orchestrator.conf.json
+ *
+ * After extraction, these need to be:
+ *   - dockerfile: Dockerfile.node
+ *   - ./orchestrator/orchestrator.conf.json
+ */
+function fixDockerComposePaths(filePath: string): void {
+  let content = fs.readFileSync(filePath, 'utf-8');
+
+  // Fix dockerfile path: "dockerfile: docker/Dockerfile.node" -> "dockerfile: Dockerfile.node"
+  content = content.replace(/dockerfile: docker\//g, 'dockerfile: ');
+
+  // Fix volume paths: "./docker/orchestrator/..." -> "./orchestrator/..."
+  content = content.replace(/\.\/docker\//g, './');
+
+  fs.writeFileSync(filePath, content);
+}
+
+/**
  * Extract Docker files from npm package to ~/.clawsql/docker/
  */
 export async function ensureDockerFiles(): Promise<string> {
@@ -131,13 +155,15 @@ export async function ensureDockerFiles(): Promise<string> {
   // Copy docker/ directory
   copyDirRecursive(bundledDockerPath, dockerDir);
 
-  // Copy docker-compose.yml files
+  // Copy docker-compose.yml files and fix paths
   const composeFiles = ['docker-compose.yml', 'docker-compose.demo.yml'];
   for (const file of composeFiles) {
     const srcPath = path.join(bundledRootPath, file);
     const destPath = path.join(dockerDir, file);
     if (fs.existsSync(srcPath)) {
       fs.copyFileSync(srcPath, destPath);
+      // Fix paths for npm installation
+      fixDockerComposePaths(destPath);
     }
   }
 
@@ -146,6 +172,25 @@ export async function ensureDockerFiles(): Promise<string> {
   const destInitPath = path.join(dockerDir, 'init');
   if (fs.existsSync(bundledInitPath)) {
     copyDirRecursive(bundledInitPath, destInitPath);
+  }
+
+  // Copy package.json for Docker build
+  const packageJsonSrc = path.join(bundledRootPath, 'package.json');
+  if (fs.existsSync(packageJsonSrc)) {
+    fs.copyFileSync(packageJsonSrc, path.join(dockerDir, 'package.json'));
+  }
+
+  // Copy package-lock.json if available
+  const packageLockSrc = path.join(bundledRootPath, 'package-lock.json');
+  if (fs.existsSync(packageLockSrc)) {
+    fs.copyFileSync(packageLockSrc, path.join(dockerDir, 'package-lock.json'));
+  }
+
+  // Copy dist/ directory for Docker build (the application code)
+  const distSrc = path.join(bundledRootPath, 'dist');
+  const distDest = path.join(dockerDir, 'dist');
+  if (fs.existsSync(distSrc)) {
+    copyDirRecursive(distSrc, distDest);
   }
 
   // Write version file
