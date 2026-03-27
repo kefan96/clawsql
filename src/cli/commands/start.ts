@@ -6,7 +6,6 @@
 
 import { Command, CLIContext } from '../registry.js';
 import chalk from 'chalk';
-import { spawn } from 'child_process';
 import { ensureDockerFiles, ensureEnvFile } from '../utils/docker-files.js';
 import {
   checkDockerPrerequisites,
@@ -15,6 +14,10 @@ import {
   configureRegistryMirror,
   REGISTRY_MIRRORS,
 } from '../utils/docker-prereq.js';
+import {
+  executeCommand,
+  clearProgressCache,
+} from '../utils/command-executor.js';
 
 /**
  * Start command
@@ -121,16 +124,30 @@ export const startCommand: Command = {
     // Add up command
     composeArgs.push('up', '-d');
 
-    // Execute compose up
+    // Clear progress cache for fresh start
+    clearProgressCache();
+
+    // Track progress messages shown
+    const progressMessages = new Set<string>();
+    const showProgress = (msg: string) => {
+      if (!progressMessages.has(msg)) {
+        progressMessages.add(msg);
+        console.log(formatter.info(msg));
+      }
+    };
+
+    // Execute compose up with abstract progress output
     console.log();
     const result = await executeCommand(dockerInfo.composeCommand, composeArgs, {
       cwd: dockerPath,
       env: Object.keys(composeEnv).length > 0 ? composeEnv : undefined,
+      logCommand: demoMode ? '/start --demo' : allInOneMode ? '/start --allinone' : '/start',
+      onProgress: showProgress,
     });
 
     if (!result.success) {
       console.log(formatter.error('Failed to start services'));
-      console.log(result.stderr);
+      console.log(formatter.info('Check logs: ~/.clawsql/logs/clawsql.log'));
       return;
     }
 
@@ -192,47 +209,6 @@ async function waitForAPI(ctx: CLIContext, timeoutSeconds: number): Promise<bool
   }
 
   return false;
-}
-
-/**
- * Execute a command
- */
-function executeCommand(
-  cmd: string[],
-  args: string[],
-  options?: { cwd?: string; silent?: boolean; env?: Record<string, string> }
-): Promise<{ success: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd[0], [...cmd.slice(1), ...args], {
-      cwd: options?.cwd,
-      stdio: options?.silent ? 'pipe' : 'inherit',
-      env: options?.env ? { ...process.env, ...options.env } : process.env,
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    if (options?.silent) {
-      proc.stdout?.on('data', (data) => { stdout += data; });
-      proc.stderr?.on('data', (data) => { stderr += data; });
-    }
-
-    proc.on('close', (code) => {
-      resolve({
-        success: code === 0,
-        stdout,
-        stderr,
-      });
-    });
-
-    proc.on('error', () => {
-      resolve({
-        success: false,
-        stdout: '',
-        stderr: 'Failed to execute command',
-      });
-    });
-  });
 }
 
 /**

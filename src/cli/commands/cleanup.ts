@@ -6,11 +6,14 @@
 
 import { Command, CLIContext } from '../registry.js';
 import { theme, indicators } from '../ui/components.js';
-import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getDockerFilesDir, ensureDockerFiles } from '../utils/docker-files.js';
 import { checkDockerPrerequisites } from '../utils/docker-prereq.js';
+import {
+  executeCommand,
+  clearProgressCache,
+} from '../utils/command-executor.js';
 
 /**
  * Cleanup command
@@ -50,17 +53,29 @@ export const cleanupCommand: Command = {
       dockerPath = getDockerFilesDir();
     }
 
+    // Clear progress cache and set up logging
+    clearProgressCache();
+
+    // Track progress messages shown
+    const progressMessages = new Set<string>();
+    const showProgress = (msg: string) => {
+      if (!progressMessages.has(msg)) {
+        progressMessages.add(msg);
+        console.log(theme.secondary(`  ${msg}`));
+      }
+    };
+
     // Stop and remove containers
     console.log(theme.secondary('Stopping containers...'));
-    await stopContainers(dockerInfo.runtime);
+    await stopContainers(dockerInfo.runtime, showProgress);
 
     // Remove volumes
     console.log(theme.secondary('Removing volumes...'));
-    await removeVolumes(dockerInfo.runtime);
+    await removeVolumes(dockerInfo.runtime, showProgress);
 
     // Remove images (optional)
     console.log(theme.secondary('Removing images...'));
-    await removeImages(dockerInfo.runtime);
+    await removeImages(dockerInfo.runtime, showProgress);
 
     // Remove local data directories
     if (dockerPath && fs.existsSync(dockerPath)) {
@@ -71,26 +86,31 @@ export const cleanupCommand: Command = {
     console.log();
     console.log(theme.success(`${indicators.check} Cleanup complete!`));
     console.log(theme.muted('Run "clawsql start" to start fresh.'));
+    console.log(theme.muted('Log file: ~/.clawsql/logs/clawsql.log'));
   },
 };
 
 /**
  * Stop all ClawSQL containers
  */
-async function stopContainers(runtime: string): Promise<void> {
+async function stopContainers(runtime: string, onProgress: (msg: string) => void): Promise<void> {
   // Get all clawsql-related containers
-  const result = await execCommand(
-    [runtime, 'ps', '-a', '--filter', 'name=clawsql', '--filter', 'name=orchestrator',
+  const result = await executeCommand(
+    [runtime],
+    ['ps', '-a', '--filter', 'name=clawsql', '--filter', 'name=orchestrator',
      '--filter', 'name=proxysql', '--filter', 'name=prometheus', '--filter', 'name=grafana',
      '--filter', 'name=metadata-mysql', '--filter', 'name=mysql-', '-q'],
-    true
+    { logCommand: '/cleanup', onProgress }
   );
 
   if (result.success && result.stdout.trim()) {
     const containerIds = result.stdout.trim().split('\n').filter(Boolean);
 
     for (const id of containerIds) {
-      await execCommand([runtime, 'rm', '-f', id], false);
+      await executeCommand([runtime], ['rm', '-f', id], {
+        logCommand: '/cleanup',
+        onProgress
+      });
     }
   }
 }
@@ -98,7 +118,7 @@ async function stopContainers(runtime: string): Promise<void> {
 /**
  * Remove volumes
  */
-async function removeVolumes(runtime: string): Promise<void> {
+async function removeVolumes(runtime: string, onProgress: (msg: string) => void): Promise<void> {
   const volumePatterns = [
     'clawsql',
     'metadata-mysql-data',
@@ -108,17 +128,26 @@ async function removeVolumes(runtime: string): Promise<void> {
   ];
 
   for (const pattern of volumePatterns) {
-    await execCommand([runtime, 'volume', 'rm', '-f', pattern], true);
+    await executeCommand([runtime], ['volume', 'rm', '-f', pattern], {
+      logCommand: '/cleanup',
+      onProgress
+    });
   }
 
   // Also try to find volumes with project prefix
-  const listResult = await execCommand([runtime, 'volume', 'ls', '-q'], true);
+  const listResult = await executeCommand([runtime], ['volume', 'ls', '-q'], {
+    logCommand: '/cleanup',
+    onProgress
+  });
   if (listResult.success && listResult.stdout.trim()) {
     const volumes = listResult.stdout.trim().split('\n');
     for (const vol of volumes) {
       if (vol.includes('clawsql') || vol.includes('metadata') || vol.includes('proxysql') ||
           vol.includes('prometheus') || vol.includes('grafana')) {
-        await execCommand([runtime, 'volume', 'rm', '-f', vol], true);
+        await executeCommand([runtime], ['volume', 'rm', '-f', vol], {
+          logCommand: '/cleanup',
+          onProgress
+        });
       }
     }
   }
@@ -127,9 +156,12 @@ async function removeVolumes(runtime: string): Promise<void> {
 /**
  * Remove images
  */
-async function removeImages(runtime: string): Promise<void> {
+async function removeImages(runtime: string, onProgress: (msg: string) => void): Promise<void> {
   // Remove clawsql image (built locally)
-  await execCommand([runtime, 'rmi', '-f', 'clawsql'], true);
+  await executeCommand([runtime], ['rmi', '-f', 'clawsql'], {
+    logCommand: '/cleanup',
+    onProgress
+  });
 
   // Note: We don't remove base images (mysql, orchestrator, etc.) as they may be used by other projects
 }
@@ -158,41 +190,6 @@ async function removeLocalData(projectRoot: string): Promise<void> {
   // if (fs.existsSync(envPath)) {
   //   fs.unlinkSync(envPath);
   // }
-}
-
-/**
- * Execute a shell command
- */
-function execCommand(cmd: string[], silent: boolean = false): Promise<{ success: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd[0], cmd.slice(1), {
-      stdio: silent ? 'pipe' : 'inherit',
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    if (silent) {
-      proc.stdout?.on('data', (data) => { stdout += data; });
-      proc.stderr?.on('data', (data) => { stderr += data; });
-    }
-
-    proc.on('close', (code) => {
-      resolve({
-        success: code === 0,
-        stdout,
-        stderr,
-      });
-    });
-
-    proc.on('error', () => {
-      resolve({
-        success: false,
-        stdout: '',
-        stderr: 'Failed to execute command',
-      });
-    });
-  });
 }
 
 export default cleanupCommand;

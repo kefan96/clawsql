@@ -22,15 +22,12 @@ jest.mock('chalk', () => ({
   gray: (str: string) => str,
 }));
 
-// Mock child_process spawn
-jest.mock('child_process', () => ({
-  spawn: jest.fn(),
-}));
-
 // Mock fs
 jest.mock('fs', () => ({
   existsSync: jest.fn(),
   copyFileSync: jest.fn(),
+  mkdirSync: jest.fn(),
+  appendFileSync: jest.fn(),
 }));
 
 // Mock docker-files utility
@@ -50,20 +47,30 @@ jest.mock('../../../cli/utils/docker-prereq', () => ({
   getDockerInstallGuidance: jest.fn().mockReturnValue('Install Docker from...'),
 }));
 
+// Mock command-executor utility
+jest.mock('../../../cli/utils/command-executor', () => ({
+  executeCommand: jest.fn().mockResolvedValue({
+    success: true,
+    stdout: 'docker output',
+    stderr: '',
+  }),
+  clearProgressCache: jest.fn(),
+}));
+
 // Mock fetch
 global.fetch = jest.fn();
 
 import { startCommand } from '../../../cli/commands/start';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import { ensureDockerFiles, ensureEnvFile } from '../../../cli/utils/docker-files';
 import { checkDockerPrerequisites } from '../../../cli/utils/docker-prereq';
+import { executeCommand } from '../../../cli/utils/command-executor';
 
-const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 const mockEnsureDockerFiles = ensureDockerFiles as jest.MockedFunction<typeof ensureDockerFiles>;
 const mockEnsureEnvFile = ensureEnvFile as jest.MockedFunction<typeof ensureEnvFile>;
 const mockCheckDockerPrerequisites = checkDockerPrerequisites as jest.MockedFunction<typeof checkDockerPrerequisites>;
+const mockExecuteCommand = executeCommand as jest.MockedFunction<typeof executeCommand>;
 
 describe('startCommand', () => {
   let mockContext: any;
@@ -101,26 +108,11 @@ describe('startCommand', () => {
     // Mock process.cwd
     jest.spyOn(process, 'cwd').mockReturnValue('/root/clawsql');
 
-    // Mock successful spawn by default
-    mockSpawn.mockImplementation(() => {
-      const proc = {
-        stdout: {
-          on: jest.fn((event: string, cb: (data: Buffer) => void) => {
-            if (event === 'data') {
-              cb(Buffer.from('docker version info'));
-            }
-          }),
-        },
-        stderr: {
-          on: jest.fn(),
-        },
-        on: jest.fn((event: string, cb: (code: number) => void) => {
-          if (event === 'close') {
-            cb(0);
-          }
-        }),
-      };
-      return proc as any;
+    // Mock successful executeCommand by default
+    mockExecuteCommand.mockResolvedValue({
+      success: true,
+      stdout: 'docker output',
+      stderr: '',
     });
 
     // Mock fs - docker-compose.yml exists
@@ -182,25 +174,16 @@ describe('startCommand', () => {
   });
 
   it('should handle compose failure', async () => {
-    mockSpawn.mockImplementation(() => {
-      const proc = {
-        stdout: { on: jest.fn() },
-        stderr: {
-          on: jest.fn((event: string, cb: (data: Buffer) => void) => {
-            if (event === 'data') cb(Buffer.from('compose error'));
-          }),
-        },
-        on: jest.fn((event: string, cb: (code: number) => void) => {
-          if (event === 'close') cb(1);
-        }),
-      };
-      return proc as any;
+    mockExecuteCommand.mockResolvedValueOnce({
+      success: false,
+      stdout: '',
+      stderr: 'compose error',
     });
 
     await startCommand.handler([], mockContext);
 
     // Should have attempted to start
-    expect(mockSpawn).toHaveBeenCalled();
+    expect(mockExecuteCommand).toHaveBeenCalled();
   });
 
   it('should wait for API to be ready', async () => {
@@ -227,7 +210,7 @@ describe('startCommand', () => {
     await startCommand.handler([], mockContext);
 
     // Should have completed (either success or handled gracefully)
-    expect(mockSpawn).toHaveBeenCalled();
+    expect(mockExecuteCommand).toHaveBeenCalled();
   }, 10000);
 
   it('should handle podman runtime', async () => {

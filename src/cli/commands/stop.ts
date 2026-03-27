@@ -5,11 +5,14 @@
  */
 
 import { Command, CLIContext } from '../registry.js';
-import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getDockerFilesDir, ensureDockerFiles } from '../utils/docker-files.js';
 import { checkDockerPrerequisites } from '../utils/docker-prereq.js';
+import {
+  executeCommand,
+  clearProgressCache,
+} from '../utils/command-executor.js';
 
 /**
  * Stop command
@@ -55,57 +58,33 @@ export const stopCommand: Command = {
       composeArgs.unshift('-f', 'docker-compose.yml', '-f', 'docker-compose.demo.yml');
     }
 
-    // Execute compose down
+    // Clear progress cache for fresh start
+    clearProgressCache();
+
+    // Track progress messages shown
+    const progressMessages = new Set<string>();
+    const showProgress = (msg: string) => {
+      if (!progressMessages.has(msg)) {
+        progressMessages.add(msg);
+        console.log(formatter.info(msg));
+      }
+    };
+
+    // Execute compose down with abstract progress output
     console.log(formatter.info('Stopping services...'));
-    const result = await executeCommand(dockerInfo.composeCommand, composeArgs, { cwd: dockerPath });
+    const result = await executeCommand(dockerInfo.composeCommand, composeArgs, {
+      cwd: dockerPath,
+      logCommand: '/stop',
+      onProgress: showProgress,
+    });
 
     if (result.success) {
       console.log(formatter.success('ClawSQL platform stopped'));
     } else {
       console.log(formatter.error('Failed to stop services'));
-      console.log(result.stderr);
+      console.log(formatter.info('Check logs: ~/.clawsql/logs/clawsql.log'));
     }
   },
 };
-
-/**
- * Execute a command
- */
-function executeCommand(
-  cmd: string[],
-  args: string[],
-  options?: { cwd?: string; silent?: boolean }
-): Promise<{ success: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd[0], [...cmd.slice(1), ...args], {
-      cwd: options?.cwd,
-      stdio: options?.silent ? 'pipe' : 'inherit',
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    if (options?.silent) {
-      proc.stdout?.on('data', (data) => { stdout += data; });
-      proc.stderr?.on('data', (data) => { stderr += data; });
-    }
-
-    proc.on('close', (code) => {
-      resolve({
-        success: code === 0,
-        stdout,
-        stderr,
-      });
-    });
-
-    proc.on('error', () => {
-      resolve({
-        success: false,
-        stdout: '',
-        stderr: 'Failed to execute command',
-      });
-    });
-  });
-}
 
 export default stopCommand;
