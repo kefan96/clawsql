@@ -37,14 +37,37 @@ This starts:
 | Prometheus | http://localhost:9090 | - |
 | Orchestrator | http://localhost:3000 | - |
 | ProxySQL Admin | localhost:6032 | admin/admin |
-| **Demo MySQL** | | |
-| Primary | localhost:3306 | root/rootpassword |
-| Replica 1 | localhost:3307 | root/rootpassword |
-| Replica 2 | localhost:3308 | root/rootpassword |
+| **Demo MySQL** (host networking) | | |
+| Primary | `<host-ip>:3306` | clawsql/clawsql_password |
+| Replica 1 | `<host-ip>:3307` | clawsql/clawsql_password |
+| Replica 2 | `<host-ip>:3308` | clawsql/clawsql_password |
+
+> **Note:** Replace `<host-ip>` with your actual host IP (shown in startup output).
 
 ## Demo Scenarios
 
-### 0. Using the CLI
+### 0. Register Instances and Set Up Replication
+
+After starting with `--demo`, register the MySQL instances using your host IP:
+
+```bash
+# Get your host IP from the startup output
+HOST_IP=<your-host-ip>
+
+# Register instances
+node dist/bin/clawsql.js -c "/instances register ${HOST_IP} 3306"
+node dist/bin/clawsql.js -c "/instances register ${HOST_IP} 3307"
+node dist/bin/clawsql.js -c "/instances register ${HOST_IP} 3308"
+
+# Set up replication (creates repl user automatically)
+node dist/bin/clawsql.js -c "/instances setup-replication --host ${HOST_IP}:3307 --master ${HOST_IP}:3306"
+node dist/bin/clawsql.js -c "/instances setup-replication --host ${HOST_IP}:3308 --master ${HOST_IP}:3306"
+
+# Verify topology
+node dist/bin/clawsql.js -c "/clusters topology"
+```
+
+### 1. Using the CLI
 
 The ClawSQL CLI provides an interactive way to manage your clusters:
 
@@ -65,7 +88,7 @@ node dist/bin/clawsql.js -c "/clusters topology"
 node dist/bin/clawsql.js -c "/clusters sync"
 ```
 
-### 1. Instance Discovery
+### 2. Instance Discovery
 
 Discover MySQL instances in the demo network:
 
@@ -78,7 +101,7 @@ curl -X POST http://localhost:8080/api/v1/instances/discover \
   }'
 ```
 
-### 2. View Cluster Topology
+### 3. View Cluster Topology
 
 ```bash
 # List clusters
@@ -88,7 +111,7 @@ curl http://localhost:8080/api/v1/clusters
 curl http://localhost:8080/api/v1/clusters/demo-cluster/topology
 ```
 
-### 3. Health Monitoring
+### 4. Health Monitoring
 
 ```bash
 # System health
@@ -98,11 +121,11 @@ curl http://localhost:8080/api/v1/monitoring/health
 curl http://localhost:8080/api/v1/monitoring/alerts
 ```
 
-### 4. Connect via ProxySQL
+### 5. Connect via ProxySQL
 
 ```bash
 # Connect through ProxySQL (read/write split automatic)
-mysql -h 127.0.0.1 -P 6033 -u root -prootpassword
+mysql -h 127.0.0.1 -P 6033 -u clawsql -pclawsql_password
 
 # Run a query - routed to replica (reader hostgroup)
 mysql> SELECT * FROM testdb.users;
@@ -111,7 +134,7 @@ mysql> SELECT * FROM testdb.users;
 mysql> INSERT INTO testdb.users (name, email) VALUES ('Dave', 'dave@example.com');
 ```
 
-### 5. Load Testing (Optional)
+### 6. Load Testing (Optional)
 
 If you have SysBench installed:
 
@@ -129,7 +152,7 @@ mysql -h 127.0.0.1 -P 6032 -u admin -padmin -e "SELECT * FROM stats_mysql_query_
 ./scripts/load_data.sh cleanup
 ```
 
-### 6. Failover Simulation
+### 7. Failover Simulation
 
 ```bash
 # Run failover simulation
@@ -143,7 +166,7 @@ This will:
 4. Recover the failed primary
 5. Verify final state
 
-### 7. Manual Failover
+### 8. Manual Failover
 
 ```bash
 # Get failover candidates

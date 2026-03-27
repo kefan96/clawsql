@@ -31,15 +31,11 @@ Start the platform and connect to your existing MySQL instances:
 ./start.sh
 ```
 
-Then configure your MySQL credentials:
+Then create the admin user on your MySQL instances:
 
 ```bash
-# Set MySQL admin credentials
-/config set mysql.admin_user root
-/config set mysql.admin_password yourpassword
-
-# Create Orchestrator user on your MySQL instances
-mysql -e "CREATE USER 'clawsql'@'%' IDENTIFIED BY 'clawsql_password'; GRANT ALL ON *.* TO 'clawsql'@'%' WITH GRANT OPTION;"
+# Create the clawsql admin user on each MySQL instance
+mysql -e "CREATE USER 'clawsql'@'%' IDENTIFIED WITH mysql_native_password BY 'clawsql_password'; GRANT ALL ON *.* TO 'clawsql'@'%' WITH GRANT OPTION;"
 ```
 
 ### Verify Services
@@ -70,15 +66,38 @@ Run diagnostics:
 
 ### Demo MySQL Cluster
 
-When started with `--demo`:
+When started with `--demo`, MySQL containers use host networking to simulate real multi-node deployments:
 
 | Instance | Port | Credentials |
 |----------|------|-------------|
-| Primary | 3306 | root/rootpassword |
-| Replica 1 | 3307 | root/rootpassword |
-| Replica 2 | 3308 | root/rootpassword |
+| Primary | 3306 | clawsql/clawsql_password |
+| Replica 1 | 3307 | clawsql/clawsql_password |
+| Replica 2 | 3308 | clawsql/clawsql_password |
 
-## Step 2: Configure OpenClaw (AI Agent)
+> **Note:** Replace `localhost` with your host IP when connecting from outside the host.
+
+## Step 2: Register Instances
+
+After starting with `--demo`, register the MySQL instances using your host IP (shown in startup output):
+
+```bash
+# Register instances (replace with your host IP)
+/instances register <host-ip> 3306
+/instances register <host-ip> 3307
+/instances register <host-ip> 3308
+```
+
+### Set Up Replication
+
+Configure replication between primary and replicas:
+
+```bash
+# Set up replication (creates repl user automatically)
+/instances setup-replication --host <host-ip>:3307 --master <host-ip>:3306
+/instances setup-replication --host <host-ip>:3308 --master <host-ip>:3306
+```
+
+### Auto-Discovery (Alternative)
 
 ClawSQL includes an AI-powered assistant for database operations using [OpenClaw](https://github.com/anthropics/openclaw).
 
@@ -138,9 +157,7 @@ The AI agent can assist with:
 
 During AI processing, press **ESC twice** (within 500ms) to stop the current operation.
 
-## Step 3: Register Instances
-
-### Auto-Discovery
+### Auto-Discovery (Alternative Method)
 
 Scan a network for MySQL instances:
 
@@ -155,7 +172,7 @@ Scan a network for MySQL instances:
 /instances discover 10.0.0.0/24 --user root --password mypassword --auto-register
 ```
 
-### Manual Registration
+### Manual Registration (Alternative Method)
 
 Register instances individually:
 
@@ -182,7 +199,7 @@ Register instances individually:
 /instances remove mysql-old:3306
 ```
 
-## Step 4: Manage Clusters
+## Step 3: Manage Clusters
 
 ### View Cluster Topology
 
@@ -245,7 +262,7 @@ Connect your application to ProxySQL:
 mysql -h 127.0.0.1 -P 6033 -u root -prootpassword
 ```
 
-## Step 5: Failover & Switchover
+## Step 4: Failover & Switchover
 
 ### Terminology
 

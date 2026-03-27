@@ -197,22 +197,24 @@ Settings loaded from environment variables via Zod schemas. See `.env.example`.
 
 ## MySQL Configuration Requirements
 
-### Orchestrator User
+### Admin User (Required)
 
-Orchestrator connects to MySQL using `clawsql`/`clawsql_password` (configured in `docker/orchestrator/orchestrator.conf.json`):
+Create the `clawsql` admin user on your MySQL instances. This user is used by ClawSQL for all operations:
 
 ```sql
-CREATE USER 'clawsql'@'%' IDENTIFIED BY 'clawsql_password';
+CREATE USER 'clawsql'@'%' IDENTIFIED WITH mysql_native_password BY 'clawsql_password';
 GRANT ALL PRIVILEGES ON *.* TO 'clawsql'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
 ```
 
-### Replication User
+### Replication User (Created Automatically)
 
-For GTID replication:
+The replication user is created automatically by `/instances setup-replication`. If needed manually:
 
 ```sql
 CREATE USER 'repl'@'%' IDENTIFIED WITH mysql_native_password BY 'repl_password';
 GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
+FLUSH PRIVILEGES;
 ```
 
 ## Common Issues

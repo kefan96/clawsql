@@ -48,7 +48,23 @@ clawsql
 
 This starts:
 - ClawSQL platform (API, Orchestrator, ProxySQL, Prometheus, Grafana)
-- Demo MySQL cluster (1 primary + 2 replicas)
+- Demo MySQL cluster (1 primary + 2 replicas) using host networking
+
+After starting, register the instances using your host IP:
+
+```bash
+# Replace <host-ip> with your actual host IP (shown in startup output)
+> /instances register <host-ip> 3306
+> /instances register <host-ip> 3307
+> /instances register <host-ip> 3308
+
+# Set up replication (creates repl user automatically)
+> /instances setup-replication --host <host-ip>:3307 --master <host-ip>:3306
+> /instances setup-replication --host <host-ip>:3308 --master <host-ip>:3306
+
+# Sync to ProxySQL
+> /clusters sync
+```
 
 ### Option 2: Production Mode (Bring Your Own MySQL)
 
@@ -61,18 +77,17 @@ clawsql
 # Start platform services
 > /start
 
-# Configure MySQL credentials
-> /config set mysql.admin_user root
-> /config set mysql.admin_password yourpassword
-
-# Create Orchestrator user on your MySQL instances (run on your MySQL server)
-# mysql -e "CREATE USER 'clawsql'@'%' IDENTIFIED BY 'clawsql_password'; GRANT ALL ON *.* TO 'clawsql'@'%' WITH GRANT OPTION;"
+# Create the clawsql admin user on your MySQL instances (run on each MySQL server)
+# mysql -e "CREATE USER 'clawsql'@'%' IDENTIFIED WITH mysql_native_password BY 'clawsql_password'; GRANT ALL ON *.* TO 'clawsql'@'%' WITH GRANT OPTION;"
 
 # Discover MySQL instances on your network
-> /instances discover 172.18.0.0/24 --user root --password yourpassword
+> /instances discover 172.18.0.0/24 --auto-register
 
 # Or register instances manually
-> /instances register --host mysql-primary --port 3306
+> /instances register mysql-primary 3306
+
+# Set up replication (if needed)
+> /instances setup-replication --host replica-host:3306 --master primary-host:3306
 
 # Sync to ProxySQL
 > /clusters sync
@@ -96,13 +111,20 @@ After starting, access these services:
 
 ### Demo MySQL Cluster
 
-When started with `--demo`:
+When started with `--demo`, MySQL containers use host networking to simulate real multi-node deployments. Instances are accessible at your host IP:
 
 | Instance | Port | Credentials |
 |----------|------|-------------|
-| Primary | 3306 | root/rootpassword |
-| Replica 1 | 3307 | root/rootpassword |
-| Replica 2 | 3308 | root/rootpassword |
+| Primary | 3306 | clawsql/clawsql_password |
+| Replica 1 | 3307 | clawsql/clawsql_password |
+| Replica 2 | 3308 | clawsql/clawsql_password |
+
+> **Note:** After starting with `--demo`, register instances using your host IP:
+> ```bash
+> > /instances register <host-ip> 3306
+> > /instances register <host-ip> 3307
+> > /instances register <host-ip> 3308
+> ```
 
 ## CLI Commands
 
@@ -146,12 +168,16 @@ Available configuration keys:
   --port <port>           Port range (default: 3306)
   --auto-register         Auto-register discovered instances
 
-/instances register --host <host> [options]   # Register instance manually
-  --port <port>           MySQL port (default: 3306)
-  --user <user>           MySQL username
+/instances register <host> [port] [options]   # Register instance manually
+  <host>                  MySQL hostname or IP (use host IP for demo)
+  [port]                  MySQL port (default: 3306)
+  --user <user>           MySQL username (default: from config)
   --password <pass>       MySQL password
 
-/instances remove --host <host> [--port <port>]   # Remove instance
+/instances remove <host> [port]   # Remove instance
+
+/instances setup-replication --host <replica:port> --master <primary:port>
+  # Configure replication (creates repl user automatically)
 ```
 
 ### Cluster Management
@@ -195,17 +221,19 @@ Available configuration keys:
 
 ## MySQL Configuration Requirements
 
-### Orchestrator User
+### Admin User (Required)
 
-Create a user for Orchestrator on your MySQL instances:
+Create the `clawsql` admin user on your MySQL instances. This user is used by ClawSQL for topology discovery, monitoring, and management:
 
 ```sql
-CREATE USER 'clawsql'@'%' IDENTIFIED BY 'clawsql_password';
+CREATE USER 'clawsql'@'%' IDENTIFIED WITH mysql_native_password BY 'clawsql_password';
 GRANT ALL PRIVILEGES ON *.* TO 'clawsql'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 ```
 
-### Replication User (for GTID replication)
+### Replication User (Created Automatically)
+
+The replication user is created automatically by ClawSQL when you run `/instances setup-replication`. If you want to set up replication manually:
 
 ```sql
 CREATE USER 'repl'@'%' IDENTIFIED WITH mysql_native_password BY 'repl_password';
