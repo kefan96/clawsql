@@ -9,7 +9,7 @@
 # - Grafana (visualization)
 # - Supervisord (process manager)
 
-FROM docker.io/library/node:20-alpine AS clawsql-builder
+FROM node:20-slim AS clawsql-builder
 
 WORKDIR /build
 COPY package.json package-lock.json* ./
@@ -18,27 +18,30 @@ COPY . .
 RUN npm run build
 
 # =============================================================================
-# Final all-in-one image
+# Final all-in-one image (Debian-based for glibc compatibility)
 # =============================================================================
-FROM docker.io/library/alpine:3.19
+FROM debian:bookworm-slim
 
 # Install all dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     npm \
     curl \
     wget \
-    mysql-client \
+    default-mysql-client \
     supervisor \
     python3 \
-    py3-pip \
+    python3-pip \
     bash \
-    shadow \
-    && pip3 install --break-system-packages supervisor
+    procps \
+    gnupg \
+    lsb-release \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Download and install components
-ARG ORCHESTRATOR_VERSION=latest
-ARG PROXYSQL_VERSION=latest
+ARG ORCHESTRATOR_VERSION=3.2.6
+ARG PROXYSQL_VERSION=3.0.6
 ARG PROMETHEUS_VERSION=2.45.0
 ARG GRAFANA_VERSION=10.2.0
 
@@ -54,22 +57,21 @@ RUN mkdir -p /opt/clawsql \
     /var/lib/grafana \
     /data
 
-# Copy ClawSQL application
-COPY --from=clawsql-builder /build/dist /opt/clawsql/dist
-COPY --from=clawsql-builder /build/node_modules /opt/clawsql/node_modules
-COPY --from=clawsql-builder /build/package.json /opt/clawsql/
-COPY docker/orchestrator/orchestrator.conf.json /etc/orchestrator.conf.json
-COPY docker/proxysql/proxysql.cnf /etc/proxysql.cnf
-COPY docker/prometheus/prometheus.yml /etc/prometheus.yml
-COPY docker/grafana/provisioning /opt/grafana/conf/provisioning
-COPY docker/grafana/dashboards /opt/grafana/dashboards
-
 # Download Orchestrator
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; elif [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
-    wget -q "https://github.com/openark/orchestrator/releases/download/v3.2.6/orchestrator-3.2.6-linux-${ARCH}.tar.gz" -O /tmp/orchestrator.tar.gz && \
+    wget -q "https://github.com/openark/orchestrator/releases/download/v${ORCHESTRATOR_VERSION}/orchestrator-${ORCHESTRATOR_VERSION}-linux-${ARCH}.tar.gz" -O /tmp/orchestrator.tar.gz && \
     tar -xzf /tmp/orchestrator.tar.gz -C /opt/orchestrator --strip-components=1 && \
     rm /tmp/orchestrator.tar.gz
+
+# Download and install ProxySQL (install before copying our config)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; elif [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    wget -q "https://github.com/sysown/proxysql/releases/download/v${PROXYSQL_VERSION}/proxysql_${PROXYSQL_VERSION}-debian12_${ARCH}.deb" -O /tmp/proxysql.deb && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confnew" /tmp/proxysql.deb && \
+    rm /tmp/proxysql.deb && \
+    rm -rf /var/lib/apt/lists/*
 
 # Download Prometheus
 RUN ARCH=$(uname -m) && \
@@ -85,8 +87,17 @@ RUN ARCH=$(uname -m) && \
     tar -xzf /tmp/grafana.tar.gz -C /opt/grafana --strip-components=1 && \
     rm /tmp/grafana.tar.gz
 
-# ProxySQL will be installed from Alpine package or downloaded
-RUN apk add --no-cache proxysql || true
+# Copy ClawSQL application
+COPY --from=clawsql-builder /build/dist /opt/clawsql/dist
+COPY --from=clawsql-builder /build/node_modules /opt/clawsql/node_modules
+COPY --from=clawsql-builder /build/package.json /opt/clawsql/
+
+# Copy configuration files (after installing packages to avoid conflicts)
+COPY docker/orchestrator/orchestrator.conf.json /etc/orchestrator.conf.json
+COPY docker/proxysql/proxysql.cnf /etc/proxysql.cnf
+COPY docker/prometheus/prometheus.yml /etc/prometheus.yml
+COPY docker/grafana/provisioning /opt/grafana/conf/provisioning
+COPY docker/grafana/dashboards /opt/grafana/dashboards
 
 # Copy supervisord configuration
 COPY docker/supervisord.conf /etc/supervisord.conf
