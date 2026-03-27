@@ -64,14 +64,12 @@ COPY docker/prometheus/prometheus.yml /etc/prometheus.yml
 COPY docker/grafana/provisioning /opt/grafana/conf/provisioning
 COPY docker/grafana/dashboards /opt/grafana/dashboards
 
-# Download Orchestrator (we'll use a binary release if available, or the Docker image)
+# Download Orchestrator
 RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi && \
-    wget -q "https://github.com/openark/orchestrator/releases/download/v3.2.6/orchestrator-${ARCH}.tar.gz" -O /tmp/orchestrator.tar.gz || true && \
-    if [ -f /tmp/orchestrator.tar.gz ]; then \
-        tar -xzf /tmp/orchestrator.tar.gz -C /opt/orchestrator --strip-components=1 && \
-        rm /tmp/orchestrator.tar.gz; \
-    fi
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; elif [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    wget -q "https://github.com/openark/orchestrator/releases/download/v3.2.6/orchestrator-3.2.6-linux-${ARCH}.tar.gz" -O /tmp/orchestrator.tar.gz && \
+    tar -xzf /tmp/orchestrator.tar.gz -C /opt/orchestrator --strip-components=1 && \
+    rm /tmp/orchestrator.tar.gz
 
 # Download Prometheus
 RUN ARCH=$(uname -m) && \
