@@ -38,7 +38,7 @@ describe('Settings', () => {
       const settings = getSettings();
 
       expect(settings.appName).toBe('ClawSQL');
-      expect(settings.appVersion).toBe('0.1.0');
+      expect(settings.appVersion).toBe('0.1.2');
       expect(settings.debug).toBe(false);
     });
 
