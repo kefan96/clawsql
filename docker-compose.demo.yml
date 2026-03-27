@@ -3,102 +3,111 @@
 #
 # This file adds a demo MySQL cluster (primary + 2 replicas) for testing.
 # Users with existing MySQL instances do NOT need this file.
+#
+# NOTE: MySQL containers use host networking to simulate real multi-node deployments.
+# Each instance is accessible on the host IP with different ports:
+#   - Primary:    <host-ip>:3306
+#   - Replica 1:  <host-ip>:3307
+#   - Replica 2:  <host-ip>:3308
 
 services:
   # =============================================================================
   # MySQL Primary (Writer)
+  # Uses host networking - accessible on host port 3306
   # =============================================================================
   mysql-primary:
     image: docker.io/library/mysql:8.0
     container_name: mysql-primary
     hostname: mysql-primary
-    ports:
-      - "3306:3306"
+    network_mode: host
     environment:
       - MYSQL_ROOT_PASSWORD=rootpassword
     command: >
       --server-id=1
+      --port=3306
       --log-bin=mysql-bin
       --binlog-format=ROW
       --gtid-mode=ON
       --enforce-gtid-consistency=ON
       --log-slave-updates=ON
+      --report-host=${HOST_IP:-127.0.0.1}
+      --report-port=3306
     volumes:
       - mysql-primary-data:/var/lib/mysql
       - ./init/primary.sql:/docker-entrypoint-initdb.d/01-primary.sql
-    networks:
-      - clawsql-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3306", "-uroot", "-prootpassword"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # =============================================================================
   # MySQL Replica 1 (Reader)
+  # Uses host networking - accessible on host port 3307
   # =============================================================================
   mysql-replica-1:
     image: docker.io/library/mysql:8.0
     container_name: mysql-replica-1
     hostname: mysql-replica-1
-    ports:
-      - "3307:3306"
+    network_mode: host
     environment:
       - MYSQL_ROOT_PASSWORD=rootpassword
     command: >
       --server-id=2
+      --port=3307
       --log-bin=mysql-bin
       --binlog-format=ROW
       --gtid-mode=ON
       --enforce-gtid-consistency=ON
       --log-slave-updates=ON
       --read-only=ON
+      --report-host=${HOST_IP:-127.0.0.1}
+      --report-port=3307
     volumes:
       - mysql-replica-1-data:/var/lib/mysql
-      - ./init/replica.sql:/docker-entrypoint-initdb.d/01-replica.sql
+      - ./init/replica-host.sql:/docker-entrypoint-initdb.d/01-replica.sql
     depends_on:
       mysql-primary:
         condition: service_healthy
-    networks:
-      - clawsql-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3307", "-uroot", "-prootpassword"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # =============================================================================
   # MySQL Replica 2 (Reader)
+  # Uses host networking - accessible on host port 3308
   # =============================================================================
   mysql-replica-2:
     image: docker.io/library/mysql:8.0
     container_name: mysql-replica-2
     hostname: mysql-replica-2
-    ports:
-      - "3308:3306"
+    network_mode: host
     environment:
       - MYSQL_ROOT_PASSWORD=rootpassword
     command: >
       --server-id=3
+      --port=3308
       --log-bin=mysql-bin
       --binlog-format=ROW
       --gtid-mode=ON
       --enforce-gtid-consistency=ON
       --log-slave-updates=ON
       --read-only=ON
+      --report-host=${HOST_IP:-127.0.0.1}
+      --report-port=3308
     volumes:
       - mysql-replica-2-data:/var/lib/mysql
-      - ./init/replica.sql:/docker-entrypoint-initdb.d/01-replica.sql
+      - ./init/replica-host.sql:/docker-entrypoint-initdb.d/01-replica.sql
     depends_on:
       mysql-primary:
         condition: service_healthy
-    networks:
-      - clawsql-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "3308", "-uroot", "-prootpassword"]
       interval: 10s
       timeout: 5s
       retries: 5

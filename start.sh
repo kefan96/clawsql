@@ -243,8 +243,11 @@ fi
 echo ""
 echo -e "${BLUE}[2/4] Starting services...${NC}"
 
+# Set HOST_IP for demo mode (used by MySQL report-host)
 if [ "$DEMO_MODE" = true ]; then
+    export HOST_IP=$(hostname -I | awk '{print $1}')
     echo -e "${YELLOW}Starting with demo MySQL cluster...${NC}"
+    echo -e "${CYAN}Host IP: ${HOST_IP}${NC}"
     $COMPOSE_CMD $METADATA_PROFILE -f docker-compose.yml -f docker-compose.demo.yml up -d
 else
     echo -e "${YELLOW}Starting platform services (bring your own MySQL)...${NC}"
@@ -297,11 +300,20 @@ check_service "Grafana" "http://localhost:3001/api/health" "ok"
 check_service "ProxySQL" "http://localhost:6080" "" || echo -e "${GREEN}✓ ProxySQL${NC}"
 
 if [ "$DEMO_MODE" = true ]; then
+    # Get the host IP for demo instructions
+    HOST_IP=$(hostname -I | awk '{print $1}')
+
     echo ""
-    echo -e "${YELLOW}Demo MySQL Cluster:${NC}"
-    echo "  Primary:   localhost:3306 (root/rootpassword)"
-    echo "  Replica 1: localhost:3307"
-    echo "  Replica 2: localhost:3308"
+    echo -e "${YELLOW}Demo MySQL Cluster (host networking):${NC}"
+    echo "  Primary:   ${HOST_IP}:3306 (root/rootpassword)"
+    echo "  Replica 1: ${HOST_IP}:3307"
+    echo "  Replica 2: ${HOST_IP}:3308"
+    echo ""
+    echo -e "${GREEN}Register instances with:${NC}"
+    echo "  clawsql"
+    echo "  > /instances register ${HOST_IP} 3306"
+    echo "  > /instances register ${HOST_IP} 3307"
+    echo "  > /instances register ${HOST_IP} 3308"
 fi
 
 # Print success message

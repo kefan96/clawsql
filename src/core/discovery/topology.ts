@@ -197,29 +197,63 @@ export class OrchestratorClient {
 
   /**
    * Force Orchestrator to discover an instance
+   * Returns true on success, throws error with message on failure
    */
   async discoverInstance(host: string, port: number = 3306): Promise<boolean> {
     try {
-      // Orchestrator uses GET for discover, not POST
-      await this.client.get(`/api/discover/${host}/${port}`);
+      const response = await this.client.get(`/api/discover/${host}/${port}`);
+      // Orchestrator returns 200 OK even for some errors, check the Code field
+      const data = response.data;
+      if (data.Code === 'ERROR') {
+        throw new Error(data.Message || 'Unknown Orchestrator error');
+      }
+      logger.info({ host, port }, 'Instance discovered');
       return true;
     } catch (error) {
+      // Extract error message from Orchestrator response
+      let message = 'Failed to discover instance';
+      if (axios.isAxiosError(error) && error.response?.data) {
+        const data = error.response.data;
+        if (data.Message) {
+          message = data.Message;
+        } else if (data.Error) {
+          message = data.Error;
+        }
+      } else if (error instanceof Error) {
+        message = error.message;
+      }
       logger.error({ error, host, port }, 'Failed to discover instance');
-      return false;
+      throw new Error(message);
     }
   }
 
   /**
    * Remove instance from Orchestrator's memory
+   * Returns true on success, throws error with message on failure
    */
   async forgetInstance(host: string, port: number = 3306): Promise<boolean> {
     try {
-      // Orchestrator uses GET for forget, not POST
-      await this.client.get(`/api/forget/${host}/${port}`);
+      const response = await this.client.get(`/api/forget/${host}/${port}`);
+      const data = response.data;
+      if (data.Code === 'ERROR') {
+        throw new Error(data.Message || 'Unknown Orchestrator error');
+      }
+      logger.info({ host, port }, 'Instance forgotten');
       return true;
     } catch (error) {
+      let message = 'Failed to forget instance';
+      if (axios.isAxiosError(error) && error.response?.data) {
+        const data = error.response.data;
+        if (data.Message) {
+          message = data.Message;
+        } else if (data.Error) {
+          message = data.Error;
+        }
+      } else if (error instanceof Error) {
+        message = error.message;
+      }
       logger.error({ error, host, port }, 'Failed to forget instance');
-      return false;
+      throw new Error(message);
     }
   }
 

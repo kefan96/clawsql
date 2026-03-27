@@ -222,7 +222,7 @@ describe('instancesCommand', () => {
 
       await instancesCommand.handler(['register', '192.168.1.10'], mockContext);
 
-      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Registration failed'));
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Failed to register instance'));
     });
 
     it('should use custom port when specified with flag', async () => {
@@ -236,6 +236,41 @@ describe('instancesCommand', () => {
       expect(mockProbeMySQLInstance).toHaveBeenCalledWith(
         '192.168.1.10',
         3307,
+        expect.any(String),
+        expect.any(String),
+        expect.any(Number)
+      );
+    });
+
+    it('should use positional port argument', async () => {
+      mockProbeMySQLInstance.mockResolvedValue({
+        isMySQL: true,
+        version: '8.0.35',
+      });
+
+      await instancesCommand.handler(['register', '192.168.1.10', '3307'], mockContext);
+
+      expect(mockProbeMySQLInstance).toHaveBeenCalledWith(
+        '192.168.1.10',
+        3307,
+        expect.any(String),
+        expect.any(String),
+        expect.any(Number)
+      );
+      expect(mockContext.orchestrator.discoverInstance).toHaveBeenCalledWith('192.168.1.10', 3307);
+    });
+
+    it('should prioritize --port flag over positional port', async () => {
+      mockProbeMySQLInstance.mockResolvedValue({
+        isMySQL: true,
+        version: '8.0.35',
+      });
+
+      await instancesCommand.handler(['register', '192.168.1.10', '3308', '--port', '3307'], mockContext);
+
+      expect(mockProbeMySQLInstance).toHaveBeenCalledWith(
+        '192.168.1.10',
+        3307, // Should use --port value, not positional
         expect.any(String),
         expect.any(String),
         expect.any(Number)
@@ -302,7 +337,7 @@ describe('instancesCommand', () => {
 
       await instancesCommand.handler(['remove', '192.168.1.10'], mockContext);
 
-      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Removal failed'));
+      expect(mockContext.formatter.error).toHaveBeenCalledWith(expect.stringContaining('Failed to remove instance'));
     });
 
     it('should accept forget as alias', async () => {

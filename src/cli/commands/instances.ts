@@ -225,7 +225,11 @@ async function registerInstance(args: string[], ctx: CLIContext): Promise<void> 
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.log(formatter.error(`Registration failed: ${message}`));
+    console.log(formatter.error(`Failed to register instance ${host}:${port}: ${message}`));
+    // Provide helpful hint for common Docker networking issue
+    if (message.includes('connection refused') || message.includes('dial tcp')) {
+      console.log(formatter.info('Hint: If using Docker, use container names (e.g., mysql-primary) instead of localhost.'));
+    }
   }
 }
 
@@ -360,7 +364,7 @@ async function removeInstance(args: string[], ctx: CLIContext): Promise<void> {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.log(formatter.error(`Removal failed: ${message}`));
+    console.log(formatter.error(`Failed to remove instance ${host}:${port}: ${message}`));
   }
 }
 
@@ -372,8 +376,13 @@ function parseInstanceArgs(args: string[]): { host: string; port: number; user?:
   if (!hostArg) return null;
 
   const host = hostArg;
-  const port = parseNumberArg(args, '--port', 3306) ||
+
+  // Check for explicit --port flag first
+  const explicitPort = parseNumberArg(args, '--port', 0);
+  // If --port not found (returns 0), check for positional port argument
+  const port = explicitPort ||
     (args[1] && !args[1].startsWith('--') ? parseInt(args[1], 10) : 3306);
+
   const user = parseStringArg(args, '--user');
   const password = parseStringArg(args, '--password');
 
@@ -491,14 +500,14 @@ async function setupReplication(args: string[], ctx: CLIContext): Promise<void> 
   // Parse arguments
   const hostArg = parseStringArg(args, '--host');
   const masterArg = parseStringArg(args, '--master');
-  const user = parseStringArg(args, '--user') || 'repl';
-  const password = parseStringArg(args, '--password') || 'replpassword';
+  const user = parseStringArg(args, '--user') || ctx.settings.mysql.replicationUser || 'repl';
+  const password = parseStringArg(args, '--password') || ctx.settings.mysql.replicationPassword || 'repl_password';
 
   if (!hostArg || !masterArg) {
     console.log(formatter.error('Missing required arguments. Usage: /instances setup-replication --host <host:port> --master <master:port>'));
     console.log(formatter.info('  --host <host:port>     Instance to configure as replica'));
     console.log(formatter.info('  --master <master:port> Master instance to replicate from'));
-    console.log(formatter.info('  --user <user>          Replication user (default: repl)'));
+    console.log(formatter.info('  --user <user>          Replication user (default: from config)'));
     console.log(formatter.info('  --password <password>  Replication password'));
     return;
   }
@@ -516,9 +525,30 @@ async function setupReplication(args: string[], ctx: CLIContext): Promise<void> 
   console.log(formatter.keyValue('Replication User', user));
   console.log();
 
+  const mysql = await import('mysql2/promise');
+
   try {
-    const mysql = await import('mysql2/promise');
-    const connection = await mysql.createConnection({
+    // Step 1: Create replication user on master if not exists
+    console.log(formatter.info('Creating replication user on master...'));
+    const masterConn = await mysql.createConnection({
+      host: masterHost,
+      port: masterPort,
+      user: ctx.settings.mysql.adminUser,
+      password: ctx.settings.mysql.adminPassword,
+      connectTimeout: 10000,
+    });
+
+    // Create replication user with mysql_native_password for compatibility
+    await masterConn.execute(
+      `CREATE USER IF NOT EXISTS '${user}'@'%' IDENTIFIED WITH mysql_native_password BY '${password}'`
+    );
+    await masterConn.execute(`GRANT REPLICATION SLAVE ON *.* TO '${user}'@'%'`);
+    await masterConn.end();
+    console.log(formatter.success('Replication user created/verified on master.'));
+
+    // Step 2: Configure replication on replica
+    console.log(formatter.info('Configuring replication on replica...'));
+    const replicaConn = await mysql.createConnection({
       host,
       port,
       user: ctx.settings.mysql.adminUser,
@@ -527,31 +557,29 @@ async function setupReplication(args: string[], ctx: CLIContext): Promise<void> 
     });
 
     // Stop slave first
-    console.log(formatter.info('Stopping existing replication...'));
-    await connection.execute('STOP SLAVE');
+    await replicaConn.execute('STOP SLAVE');
 
     // Configure replication
-    console.log(formatter.info('Configuring replication...'));
-    await connection.execute(`
-      CHANGE MASTER TO
-        MASTER_HOST = ?,
-        MASTER_PORT = ?,
-        MASTER_USER = ?,
-        MASTER_PASSWORD = ?,
-        MASTER_AUTO_POSITION = 1
-    `, [masterHost, masterPort, user, password]);
+    await replicaConn.execute(
+      `CHANGE MASTER TO
+        MASTER_HOST = '${masterHost}',
+        MASTER_PORT = ${masterPort},
+        MASTER_USER = '${user}',
+        MASTER_PASSWORD = '${password}',
+        MASTER_AUTO_POSITION = 1`
+    );
 
     // Start slave
     console.log(formatter.info('Starting replication...'));
-    await connection.execute('START SLAVE');
+    await replicaConn.execute('START SLAVE');
 
     // Wait and check status
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    const [rows] = await connection.execute('SHOW SLAVE STATUS');
+    const [rows] = await replicaConn.execute('SHOW SLAVE STATUS');
     const status = (rows as Record<string, unknown>[])[0];
 
-    await connection.end();
+    await replicaConn.end();
 
     if (status) {
       const ioRunning = status.Slave_IO_Running === 'Yes';

@@ -202,7 +202,7 @@ describe('OrchestratorClient', () => {
 
   describe('discoverInstance', () => {
     it('should return true on successful discovery', async () => {
-      mockAxiosInstance.get.mockResolvedValue({});
+      mockAxiosInstance.get.mockResolvedValue({ data: { Code: 'OK' } });
 
       const result = await client.discoverInstance('mysql-primary', 3306);
 
@@ -210,12 +210,16 @@ describe('OrchestratorClient', () => {
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/discover/mysql-primary/3306');
     });
 
-    it('should return false on failure', async () => {
+    it('should throw error on failure', async () => {
       mockAxiosInstance.get.mockRejectedValue(new Error('Failed'));
 
-      const result = await client.discoverInstance('mysql-primary', 3306);
+      await expect(client.discoverInstance('mysql-primary', 3306)).rejects.toThrow('Failed');
+    });
 
-      expect(result).toBe(false);
+    it('should throw error when Code is ERROR', async () => {
+      mockAxiosInstance.get.mockResolvedValue({ data: { Code: 'ERROR', Message: 'Connection refused' } });
+
+      await expect(client.discoverInstance('mysql-primary', 3306)).rejects.toThrow('Connection refused');
     });
   });
 
