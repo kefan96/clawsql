@@ -15,7 +15,7 @@ services:
   # ClawSQL Application (Node.js)
   # =============================================================================
   clawsql:
-    image: clawsql/clawsql:latest
+    image: kefan96/clawsql:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.node

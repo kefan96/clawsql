@@ -59,7 +59,7 @@ jest.mock('../../cli/registry', () => ({
   getRegistry: jest.fn(),
   getCommand: jest.fn(),
   createCLIContext: jest.fn().mockReturnValue({
-    settings: { appVersion: '0.1.4' },
+    settings: { appVersion: '0.1.5' },
     orchestrator: { healthCheck: jest.fn().mockResolvedValue(false) },
     failoverExecutor: {},
     proxysql: {},
