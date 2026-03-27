@@ -57,6 +57,12 @@ jest.mock('../../../cli/utils/command-executor', () => ({
   clearProgressCache: jest.fn(),
 }));
 
+// Mock agent OpenClaw detection functions
+jest.mock('../../../cli/agent/index', () => ({
+  isLocalOpenClawAvailable: jest.fn().mockResolvedValue(false),
+  isDockerOpenClawAvailable: jest.fn().mockResolvedValue(false),
+}));
+
 // Mock fetch
 global.fetch = jest.fn();
 

@@ -37,6 +37,8 @@ This starts:
 | Prometheus | http://localhost:9090 | - |
 | Orchestrator | http://localhost:3000 | - |
 | ProxySQL Admin | localhost:6032 | admin/admin |
+| OpenClaw Gateway | ws://localhost:18789 | - |
+| OpenClaw UI | http://localhost:18790 | - |
 | **Demo MySQL** (host networking) | | |
 | Primary | `<host-ip>:3306` | clawsql/clawsql_password |
 | Replica 1 | `<host-ip>:3307` | clawsql/clawsql_password |
@@ -186,37 +188,26 @@ curl -X POST http://localhost:8080/api/v1/failover/execute \
 curl http://localhost:8080/api/v1/failover/history
 ```
 
-## Using the AI Agent (OpenClaw)
+## Using the AI Agent
 
-If you have [OpenClaw](https://github.com/anthropics/openclaw) installed, you can use natural language commands:
+OpenClaw starts automatically with the platform. Use natural language commands:
 
 ```
 clawsql> show me the cluster topology
 clawsql> what's the replication lag?
-clawsql> which instance is the primary?
-clawsql> explain how failover works
 clawsql> help me troubleshoot replication issues
 ```
 
-### AI Agent Demo Scenarios
+### Demo Scenarios
 
-```bash
-# Ask about current state
+```
 clawsql> what is the status of my cluster?
-
-# Get guided help
 clawsql> how do I add a new replica?
-
-# Troubleshoot issues
 clawsql> why might a replica have high lag?
-
-# Learn about features
 clawsql> what does ProxySQL do?
 ```
 
-### Stopping AI Operations
-
-During AI processing, press **ESC twice** (within 500ms) to stop the current operation.
+See **[AI Integration](AI.md)** for setup and configuration details.
 
 ## Using Grafana
 
@@ -244,6 +235,7 @@ docker exec mysql-replica-1 mysql -uroot -prootpassword -e "STOP SLAVE; START SL
 
 ```bash
 docker-compose logs -f clawsql
+docker logs openclaw
 ```
 
 ## Cleanup

@@ -179,6 +179,13 @@ Settings loaded from environment variables via Zod schemas. See `.env.example`.
 
 3. **Prometheus**: Metrics storage
 
+4. **OpenClaw**: AI-powered operations
+   - Automatically starts as Docker container with platform
+   - Gateway WebSocket at `ws://localhost:18789`
+   - Control UI at `http://localhost:18790`
+   - Detection logic in `src/cli/agent/openclaw-integration.ts`
+   - If local OpenClaw is running, Docker container is skipped
+
 ### Failover Flow
 
 1. `FailureDetector` identifies primary failure

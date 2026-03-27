@@ -1,12 +1,40 @@
 # ClawSQL All-in-One Deployment
-# A single container with all components
+# A single container with all components + OpenClaw AI gateway
 #
 # Usage:
 #   docker-compose -f docker-compose.allinone.yml up -d
 #
-# This is the simplest deployment option - one container with everything.
+# This is the simplest deployment option - ClawSQL all-in-one + OpenClaw.
 
 services:
+  # =============================================================================
+  # OpenClaw - AI Agent Gateway for intelligent operations
+  # =============================================================================
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: openclaw
+    hostname: openclaw
+    ports:
+      - "18789:18789"  # Gateway WebSocket port
+      - "18790:18790"  # Control UI port
+    environment:
+      - OPENCLAW_GATEWAY_PORT=18789
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-clawsql-openclaw-token}
+      - OPENCLAW_STATE_DIR=/data/.openclaw
+      - OPENCLAW_WORKSPACE_DIR=/data/workspace
+    volumes:
+      - openclaw-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:18789/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # =============================================================================
+  # ClawSQL All-in-One (Node.js + Orchestrator + ProxySQL + Prometheus + Grafana)
+  # =============================================================================
   clawsql-allinone:
     image: kefan96/clawsql:allinone
     build:
@@ -30,6 +58,9 @@ services:
       - PROXYSQL_HOST=localhost
       - PROXYSQL_ADMIN_PORT=6032
       - PROMETHEUS_URL=http://localhost:9090
+      # OpenClaw Gateway for AI operations
+      - OPENCLAW_GATEWAY_URL=ws://host.docker.internal:18789
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-clawsql-openclaw-token}
       # Metadata Database (optional - uses internal SQLite if not set)
       - METADATA_DB_HOST=${METADATA_DB_HOST:-}
       - METADATA_DB_PORT=${METADATA_DB_PORT:-3306}
@@ -51,6 +82,8 @@ services:
       - prometheus-data:/var/lib/prometheus
       - grafana-data:/var/lib/grafana
       - proxysql-data:/var/lib/proxysql
+    depends_on:
+      - openclaw
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -64,3 +97,4 @@ volumes:
   prometheus-data:
   grafana-data:
   proxysql-data:
+  openclaw-data:

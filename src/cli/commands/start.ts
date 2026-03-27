@@ -18,6 +18,7 @@ import {
   executeCommand,
   clearProgressCache,
 } from '../utils/command-executor.js';
+import { isLocalOpenClawAvailable, isDockerOpenClawAvailable } from '../agent/index.js';
 
 /**
  * Start command
@@ -91,6 +92,17 @@ export const startCommand: Command = {
     // Ensure .env file exists
     await ensureEnvFile();
 
+    // Check for local OpenClaw installation
+    const localOpenClawAvailable = await isLocalOpenClawAvailable();
+    const dockerOpenClawAvailable = await isDockerOpenClawAvailable();
+    const useLocalOpenClaw = localOpenClawAvailable || dockerOpenClawAvailable;
+
+    if (useLocalOpenClaw) {
+      console.log(formatter.success('OpenClaw gateway detected (using existing installation)'));
+    } else {
+      console.log(formatter.info('No local OpenClaw found - will start in Docker'));
+    }
+
     // Build compose arguments
     const composeArgs: string[] = [];
     const composeEnv: Record<string, string> = {};
@@ -129,6 +141,12 @@ export const startCommand: Command = {
     // Add up command
     composeArgs.push('up', '-d');
 
+    // Skip OpenClaw service if already running locally
+    // Note: --scale must come after 'up' in docker-compose
+    if (useLocalOpenClaw) {
+      composeArgs.push('--scale', 'openclaw=0');
+    }
+
     // Clear progress cache for fresh start
     clearProgressCache();
 
@@ -166,6 +184,19 @@ export const startCommand: Command = {
       return;
     }
 
+    // Wait for OpenClaw gateway to be ready (skip if using local)
+    if (!useLocalOpenClaw) {
+      console.log(formatter.info('Waiting for OpenClaw AI gateway...'));
+      const openclawReady = await waitForOpenClaw(30);
+
+      if (!openclawReady) {
+        console.log(formatter.warning('OpenClaw gateway not responding (AI features may be limited)'));
+        console.log(formatter.info('Check logs: docker logs openclaw'));
+      } else {
+        console.log(formatter.success('OpenClaw gateway is ready'));
+      }
+    }
+
     console.log(formatter.success('ClawSQL platform is ready!'));
     console.log();
     console.log(chalk.bold('Services:'));
@@ -175,6 +206,14 @@ export const startCommand: Command = {
     console.log(`  Prometheus:     http://localhost:9090`);
     console.log(`  Grafana:        http://localhost:3001 (admin/admin)`);
     console.log(`  ProxySQL:       localhost:${ctx.settings.proxysql.mysqlPort} (MySQL traffic)`);
+
+    // Show OpenClaw info based on mode
+    if (useLocalOpenClaw) {
+      console.log(`  OpenClaw:       (using local installation)`);
+    } else {
+      console.log(`  OpenClaw:       http://localhost:18790 (AI Control UI)`);
+      console.log(`  OpenClaw GW:    ws://localhost:18789 (AI Gateway)`);
+    }
 
     if (demoMode) {
       console.log();
@@ -208,6 +247,31 @@ async function waitForAPI(ctx: CLIContext, timeoutSeconds: number): Promise<bool
       }
     } catch {
       // API not ready yet
+    }
+
+    await sleep(2000);
+  }
+
+  return false;
+}
+
+/**
+ * Wait for OpenClaw gateway to be ready
+ */
+async function waitForOpenClaw(timeoutSeconds: number): Promise<boolean> {
+  const startTime = Date.now();
+  const timeoutMs = timeoutSeconds * 1000;
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const response = await fetch('http://localhost:18789/health', {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        return true;
+      }
+    } catch {
+      // OpenClaw not ready yet
     }
 
     await sleep(2000);

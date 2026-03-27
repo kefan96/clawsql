@@ -5,6 +5,9 @@
 // Store original env
 const originalEnv = { ...process.env };
 
+// Import version from package.json as source of truth
+import { version } from '../../../package.json';
+
 // Mock dotenv to prevent loading .env
 jest.mock('dotenv', () => ({
   config: jest.fn(),
@@ -38,7 +41,7 @@ describe('Settings', () => {
       const settings = getSettings();
 
       expect(settings.appName).toBe('ClawSQL');
-      expect(settings.appVersion).toBe('0.1.8');
+      expect(settings.appVersion).toBe(version);
       expect(settings.debug).toBe(false);
     });
 

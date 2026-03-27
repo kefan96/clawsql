@@ -14,10 +14,26 @@ jest.mock('child_process', () => ({
 // Mock fetch
 global.fetch = jest.fn();
 
+// Mock OpenClaw integration
+jest.mock('../../../cli/agent/openclaw-integration', () => ({
+  getOpenClawStatus: jest.fn().mockResolvedValue({
+    available: false,
+    isDocker: false,
+    isLocal: false,
+  }),
+  isGatewayHealthy: jest.fn().mockResolvedValue(false),
+}));
+
 import { statusCommand } from '../../../cli/commands/status';
 import { spawn } from 'child_process';
+import {
+  getOpenClawStatus,
+  isGatewayHealthy,
+} from '../../../cli/agent/openclaw-integration';
 
 const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
+const mockGetOpenClawStatus = getOpenClawStatus as jest.MockedFunction<typeof getOpenClawStatus>;
+const mockIsGatewayHealthy = isGatewayHealthy as jest.MockedFunction<typeof isGatewayHealthy>;
 
 describe('statusCommand', () => {
   let mockContext: any;
@@ -297,5 +313,54 @@ describe('statusCommand', () => {
 
     // Should not throw
     expect(consoleSpy).toHaveBeenCalled();
+  });
+
+  it('should check OpenClaw status', async () => {
+    mockGetOpenClawStatus.mockResolvedValueOnce({
+      available: true,
+      isDocker: true,
+      isLocal: false,
+    });
+    mockIsGatewayHealthy.mockResolvedValueOnce(true);
+
+    await statusCommand.handler(['--json'], mockContext);
+
+    const lastCall = consoleSpy.mock.calls[consoleSpy.mock.calls.length - 1];
+    const output = JSON.parse(lastCall[0]);
+    expect(output.services.openclaw.healthy).toBe(true);
+    expect(output.services.openclaw.isDocker).toBe(true);
+    expect(output.services.openclaw.isLocal).toBe(false);
+  });
+
+  it('should show OpenClaw not available when gateway unhealthy', async () => {
+    mockGetOpenClawStatus.mockResolvedValueOnce({
+      available: true,
+      isDocker: true,
+      isLocal: false,
+    });
+    mockIsGatewayHealthy.mockResolvedValueOnce(false);
+
+    await statusCommand.handler(['--json'], mockContext);
+
+    const lastCall = consoleSpy.mock.calls[consoleSpy.mock.calls.length - 1];
+    const output = JSON.parse(lastCall[0]);
+    expect(output.services.openclaw.healthy).toBe(false);
+    expect(output.services.openclaw.error).toBe('Gateway not responding');
+  });
+
+  it('should show OpenClaw with local mode', async () => {
+    mockGetOpenClawStatus.mockResolvedValueOnce({
+      available: true,
+      isDocker: false,
+      isLocal: true,
+    });
+    mockIsGatewayHealthy.mockResolvedValueOnce(true);
+
+    await statusCommand.handler(['--json'], mockContext);
+
+    const lastCall = consoleSpy.mock.calls[consoleSpy.mock.calls.length - 1];
+    const output = JSON.parse(lastCall[0]);
+    expect(output.services.openclaw.healthy).toBe(true);
+    expect(output.services.openclaw.isLocal).toBe(true);
   });
 });

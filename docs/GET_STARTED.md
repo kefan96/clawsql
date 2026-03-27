@@ -63,6 +63,8 @@ Run diagnostics:
 | Grafana | http://localhost:3001 | Dashboards (admin/admin) |
 | ProxySQL MySQL | localhost:6033 | MySQL traffic (read/write split) |
 | ProxySQL Admin | localhost:6032 | Admin interface (admin/admin) |
+| OpenClaw Gateway | ws://localhost:18789 | AI agent gateway |
+| OpenClaw UI | http://localhost:18790 | AI control panel |
 
 ### Demo MySQL Cluster
 
@@ -97,65 +99,17 @@ Configure replication between primary and replicas:
 /instances setup-replication --host <host-ip>:3308 --master <host-ip>:3306
 ```
 
-### Auto-Discovery (Alternative)
+### AI Agent
 
-ClawSQL includes an AI-powered assistant for database operations using [OpenClaw](https://github.com/anthropics/openclaw).
-
-### What is OpenClaw?
-
-OpenClaw is an AI gateway that enables natural language interaction with ClawSQL. It can help you:
-- Query cluster topology and status
-- Explain replication concepts
-- Guide through setup procedures
-- Troubleshoot common issues
-
-### Prerequisites
-
-Install and configure the OpenClaw CLI:
-
-```bash
-# Install OpenClaw (example - follow OpenClaw documentation for actual installation)
-npm install -g openclaw
-
-# Configure with your AI provider credentials
-openclaw config set gateway.mode local
-openclaw config set gateway.url http://localhost:8081
-```
-
-### Checking Availability
-
-Start the ClawSQL CLI and check if OpenClaw is available:
-
-```bash
-node dist/bin/clawsql.js
-```
-
-The CLI will automatically detect OpenClaw and enable AI-powered features.
-
-### Using the AI Agent
-
-Interact naturally with the CLI:
+ClawSQL includes an AI-powered assistant using [OpenClaw](https://github.com/openclaw/openclaw). It starts automatically with the platform.
 
 ```
 clawsql> show me the cluster topology
-clawsql> what's the replication lag on replica-1?
-clawsql> help me set up a new replica
-clawsql> explain the failover process
-clawsql> why is my replica not replicating?
+clawsql> what's the replication lag?
+clawsql> help me troubleshoot issues
 ```
 
-### Supported Operations
-
-The AI agent can assist with:
-- **Topology queries**: "show me the cluster", "what's the primary?"
-- **Status checks**: "check replication status", "is the cluster healthy?"
-- **Guided operations**: "how do I add a replica?", "help me set up failover"
-- **Troubleshooting**: "why is replication lag high?", "diagnose connection issues"
-- **Explanations**: "explain read/write splitting", "how does failover work?"
-
-### Stopping AI Operations
-
-During AI processing, press **ESC twice** (within 500ms) to stop the current operation.
+See **[AI Integration](AI.md)** for setup, configuration, and usage details.
 
 ### Auto-Discovery (Alternative Method)
 
@@ -418,6 +372,7 @@ Put an instance in maintenance mode (prevents failover promotion):
 
 ## Next Steps
 
+- **[AI Integration](AI.md)** - OpenClaw AI agent setup and usage
 - **[API Documentation](API.md)** - REST API reference
 - **[Failover Documentation](failover.md)** - Detailed failover architecture
 - **[System Architecture](architecture/system_design.md)** - Technical overview
@@ -466,9 +421,7 @@ mysql -h 127.0.0.1 -P 6032 -u admin -padmin -e "SELECT * FROM mysql_servers;"
 
 ### AI Agent Not Working
 
-1. Verify OpenClaw is installed and configured
-2. Check OpenClaw gateway is running
-3. Ensure you have valid AI provider credentials
+See **[AI Integration](AI.md#troubleshooting)** for troubleshooting steps.
 
 ## Stop the Platform
 

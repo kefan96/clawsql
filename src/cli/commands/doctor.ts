@@ -8,6 +8,10 @@
 import { Command, CLIContext } from '../registry.js';
 import { theme, indicators } from '../ui/components.js';
 import { spawn } from 'child_process';
+import {
+  getOpenClawStatus,
+  isGatewayHealthy,
+} from '../agent/openclaw-integration.js';
 
 /**
  * Diagnostic result severity
@@ -75,6 +79,7 @@ async function runDiagnostics(ctx: CLIContext, results: DiagnosticResult[]): Pro
   await checkOrchestrator(ctx, results);
   await checkProxySQL(ctx, results);
   await checkPrometheus(ctx, results);
+  await checkOpenClaw(ctx, results);
 
   // Configuration checks
   checkConfiguration(ctx, results);
@@ -347,6 +352,108 @@ async function checkPrometheus(ctx: CLIContext, results: DiagnosticResult[]): Pr
       fix: 'Prometheus is optional. Start with: /start',
     });
   }
+}
+
+/**
+ * Check OpenClaw AI Gateway health
+ */
+async function checkOpenClaw(_ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
+  try {
+    const status = await getOpenClawStatus();
+
+    if (status.available) {
+      // Check gateway health
+      const gatewayHealthy = await isGatewayHealthy();
+
+      if (gatewayHealthy) {
+        if (status.isDocker) {
+          results.push({
+            name: 'OpenClaw Gateway',
+            severity: 'ok',
+            message: 'Running in Docker container (ws://localhost:18789)',
+          });
+        } else if (status.isLocal) {
+          results.push({
+            name: 'OpenClaw Gateway',
+            severity: 'ok',
+            message: 'Using local installation (ws://localhost:18789)',
+          });
+        }
+      } else {
+        results.push({
+          name: 'OpenClaw Gateway',
+          severity: 'warning',
+          message: 'Gateway is not responding',
+          detail: 'Container is running but gateway health check failed',
+          fix: 'Check logs: docker logs openclaw',
+        });
+      }
+    } else {
+      // Check if Docker OpenClaw container exists but is not running
+      const runtime = await detectRuntime();
+      if (runtime) {
+        try {
+          const psResult = await execCommand(
+            [runtime, 'ps', '-a', '--filter', 'name=openclaw', '--format', '{{.Status}}'],
+            true
+          );
+          const containerStatus = psResult.stdout.trim();
+
+          if (containerStatus && !containerStatus.toLowerCase().includes('up')) {
+            results.push({
+              name: 'OpenClaw Gateway',
+              severity: 'warning',
+              message: 'OpenClaw container exists but is not running',
+              detail: `Container status: ${containerStatus}`,
+              fix: 'Restart the platform with: /start',
+              fixCommand: '/start',
+            });
+            return;
+          }
+        } catch {
+          // Continue to default message
+        }
+      }
+
+      results.push({
+        name: 'OpenClaw Gateway',
+        severity: 'warning',
+        message: 'OpenClaw gateway is not available',
+        detail: 'AI-powered features will not work without OpenClaw',
+        fix: 'Start the platform with: /start to launch OpenClaw in Docker',
+        fixCommand: '/start',
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    results.push({
+      name: 'OpenClaw Gateway',
+      severity: 'warning',
+      message: 'Could not check OpenClaw status',
+      detail: message,
+      fix: 'Ensure OpenClaw container is running: docker ps | grep openclaw',
+    });
+  }
+}
+
+/**
+ * Detect container runtime
+ */
+async function detectRuntime(): Promise<string | null> {
+  const runtimes = ['docker', 'podman'];
+
+  for (const runtime of runtimes) {
+    try {
+      const result = await execCommand([runtime, 'info'], true);
+      if (result.success) {
+        return runtime;
+      }
+    } catch {
+      // Continue
+    }
+  }
+
+  return null;
 }
 
 /**

@@ -2,6 +2,9 @@
  * Tests for Logger Utility
  */
 
+// Import version from package.json as source of truth
+import { version } from '../../../package.json';
+
 // Mock pino
 jest.mock('pino', () => {
   const mockLogger = {
@@ -23,7 +26,7 @@ jest.mock('pino', () => {
 jest.mock('../../config/settings', () => ({
   getSettings: jest.fn().mockReturnValue({
     appName: 'ClawSQL',
-    appVersion: '0.1.8',
+    appVersion: version,
     logging: {
       level: 'INFO',
       format: 'text',

@@ -7,6 +7,10 @@
 import { Command, CLIContext } from '../registry.js';
 import { theme, indicators } from '../ui/components.js';
 import { spawn } from 'child_process';
+import {
+  getOpenClawStatus,
+  isGatewayHealthy,
+} from '../agent/openclaw-integration.js';
 
 /**
  * Status command
@@ -19,6 +23,10 @@ export const statusCommand: Command = {
     const formatter = ctx.formatter;
     const jsonOutput = args.includes('--json');
 
+    // Check OpenClaw status
+    const openClawStatus = await getOpenClawStatus();
+    const openClawGatewayHealthy = openClawStatus.available ? await isGatewayHealthy() : false;
+
     const status = {
       runtime: await detectRuntime(),
       containers: await getContainerStatus(),
@@ -28,6 +36,12 @@ export const statusCommand: Command = {
         prometheus: await checkService('http://localhost:9090/-/healthy', 'Healthy'),
         grafana: await checkService('http://localhost:3001/api/health', 'ok'),
         proxysql: await checkProxySQL(ctx),
+        openclaw: {
+          healthy: openClawGatewayHealthy,
+          isDocker: openClawStatus.isDocker,
+          isLocal: openClawStatus.isLocal,
+          error: openClawStatus.available && !openClawGatewayHealthy ? 'Gateway not responding' : undefined,
+        },
       },
       clusters: await getClusterInfo(ctx),
     };
@@ -66,10 +80,25 @@ export const statusCommand: Command = {
       prometheus: 'Prometheus',
       grafana: 'Grafana',
       proxysql: 'ProxySQL',
+      openclaw: 'OpenClaw',
     };
 
     for (const [key, label] of Object.entries(serviceNames)) {
       const serviceStatus = status.services[key as keyof typeof status.services];
+
+      // Handle OpenClaw special status display
+      if (key === 'openclaw') {
+        const ocStatus = serviceStatus as { healthy: boolean; isDocker: boolean; isLocal: boolean; error?: string };
+        if (ocStatus.healthy) {
+          const mode = ocStatus.isDocker ? '(Docker)' : ocStatus.isLocal ? '(local)' : '';
+          console.log(`  ${theme.success(indicators.success)} ${label.padEnd(20)} ${theme.success('healthy')} ${theme.muted(mode)}`);
+        } else {
+          const statusText = ocStatus.error || 'not available';
+          console.log(`  ${theme.error(indicators.error)} ${label.padEnd(20)} ${theme.error(statusText)}`);
+        }
+        continue;
+      }
+
       const statusIcon = serviceStatus.healthy ? theme.success(indicators.success) : theme.error(indicators.error);
       const statusText = serviceStatus.healthy
         ? theme.success('healthy')
@@ -137,6 +166,7 @@ async function getContainerStatus(): Promise<ContainerInfo[]> {
     const result = await execCommand(
       [runtime, 'ps', '--filter', 'name=clawsql', '--filter', 'name=orchestrator',
        '--filter', 'name=proxysql', '--filter', 'name=prometheus', '--filter', 'name=grafana',
+       '--filter', 'name=openclaw',
        '--format', '{{.Names}}\t{{.Status}}'],
       true
     );

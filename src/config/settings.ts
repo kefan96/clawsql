@@ -7,6 +7,9 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
 
+// Import version from package.json as source of truth
+import { version } from '../../package.json';
+
 // Load environment variables
 dotenv.config();
 
@@ -103,7 +106,7 @@ const SyncSettingsSchema = z.object({
 
 const SettingsSchema = z.object({
   appName: z.string().default('ClawSQL'),
-  appVersion: z.string().default('0.1.8'),
+  appVersion: z.string().default(version),
   debug: z.boolean().default(false),
   metadataDb: MetadataDBSettingsSchema,
   orchestrator: OrchestratorSettingsSchema,

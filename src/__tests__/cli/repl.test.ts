@@ -6,6 +6,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+// Import version from package.json as source of truth
+import { version } from '../../../package.json';
+
 // Mock ESM modules
 jest.mock('chalk', () => require('../__mocks__/esm-mocks').chalkMock());
 
@@ -59,7 +62,7 @@ jest.mock('../../cli/registry', () => ({
   getRegistry: jest.fn(),
   getCommand: jest.fn(),
   createCLIContext: jest.fn().mockReturnValue({
-    settings: { appVersion: '0.1.8' },
+    settings: { appVersion: version },
     orchestrator: { healthCheck: jest.fn().mockResolvedValue(false) },
     failoverExecutor: {},
     proxysql: {},
@@ -115,7 +118,7 @@ jest.mock('../../cli/formatter', () => ({
 
 // Mock UI components
 jest.mock('../../cli/ui/components', () => ({
-  createBanner: jest.fn().mockReturnValue('ClawSQL v0.1.0'),
+  createBanner: jest.fn().mockReturnValue(`ClawSQL v${version}`),
   createPrompt: jest.fn().mockReturnValue('clawsql> '),
   createDidYouMean: jest.fn().mockReturnValue('Did you mean?'),
   clearScreen: jest.fn(),

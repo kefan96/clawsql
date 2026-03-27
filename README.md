@@ -108,6 +108,8 @@ After starting, access these services:
 | Prometheus | http://localhost:9090 | Metrics collection |
 | Grafana | http://localhost:3001 | Dashboards (admin/admin) |
 | ProxySQL | localhost:6033 | MySQL traffic (read/write split) |
+| OpenClaw Gateway | ws://localhost:18789 | AI agent gateway |
+| OpenClaw UI | http://localhost:18790 | AI control panel |
 
 ### Demo MySQL Cluster
 
@@ -302,39 +304,24 @@ Key settings:
 │  │ Orchestrator│  │  Failover   │  │  Monitoring │              │
 │  │   Client    │  │   Engine    │  │   Service   │              │
 │  └─────────────┘  └─────────────┘  └─────────────┘              │
+│  ┌─────────────────────────────────────────────────┐            │
+│  │              OpenClaw AI Gateway                 │            │
+│  │         Port 18789 - Gateway | Port 18790 - UI  │            │
+│  └─────────────────────────────────────────────────┘            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## AI Agent Integration
 
-ClawSQL includes an AI-powered assistant for database operations using [OpenClaw](https://github.com/anthropics/openclaw).
-
-### Prerequisites
-
-Install and configure the OpenClaw CLI following the [OpenClaw documentation](https://github.com/anthropics/openclaw#installation).
-
-### Using the AI Agent
-
-Start the CLI and interact naturally:
+ClawSQL integrates with [OpenClaw](https://github.com/openclaw/openclaw) for AI-powered database operations. OpenClaw starts automatically with the platform.
 
 ```
 clawsql> show me the cluster topology
-clawsql> what's the replication lag on replica-1?
-clawsql> help me set up a new replica
-clawsql> explain the failover process
+clawsql> what's the replication lag?
+clawsql> help me troubleshoot replication issues
 ```
 
-### Supported Operations
-
-- **Topology queries**: "show me the cluster", "what's the primary?"
-- **Status checks**: "check replication status", "is the cluster healthy?"
-- **Guided operations**: "how do I add a replica?", "help me set up failover"
-- **Troubleshooting**: "why is replication lag high?", "diagnose connection issues"
-- **Explanations**: "explain read/write splitting", "how does failover work?"
-
-### Stopping AI Operations
-
-During AI processing, press **ESC twice** (within 500ms) to stop the current operation.
+See **[AI Integration Documentation](docs/AI.md)** for details on setup, configuration, and usage.
 
 ## Development
 
@@ -410,6 +397,7 @@ docker exec proxysql mysql -h127.0.0.1 -P6032 -uadmin -padmin -e "DELETE FROM my
 ## Documentation
 
 - [Getting Started](docs/GET_STARTED.md) - Step-by-step tutorial
+- [AI Integration](docs/AI.md) - OpenClaw AI agent setup and usage
 - [API Documentation](docs/API.md) - REST API reference
 - [Demo Guide](docs/DEMO.md) - Testing with demo cluster
 - [Failover Documentation](docs/failover.md) - Failover architecture and operations
