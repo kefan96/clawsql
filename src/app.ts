@@ -96,7 +96,7 @@ ClawSQL provides comprehensive automation for MySQL cluster management:
 - Prometheus for metrics collection
 - Grafana for visualization
         `,
-        version: '0.1.3',
+        version: '0.1.4',
       },
       servers: [
         { url: '/', description: 'Current server' },
@@ -124,7 +124,7 @@ ClawSQL provides comprehensive automation for MySQL cluster management:
   fastify.get('/', async () => {
     return {
       name: 'ClawSQL',
-      version: '0.1.3',
+      version: '0.1.4',
       description: 'MySQL Cluster Automation and Operations Management',
       docs: '/docs',
       health: '/health',
