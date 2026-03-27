@@ -2,17 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Installation
+
+### Via npm (Recommended for Users)
+
+```bash
+npm install -g clawsql
+clawsql
+> /start --demo
+```
+
+### From Source (For Development)
+
+```bash
+git clone https://github.com/clawsql/clawsql.git
+cd clawsql
+npm install
+npm run build
+node dist/bin/clawsql.js
+```
+
 ## Quick Start
 
 ```bash
-# Start platform (bring your own MySQL)
-./start.sh
-
-# Start with demo MySQL cluster
-./start.sh --demo
-
-# Stop services
-./start.sh --stop
+# Using the CLI
+clawsql
+> /start --demo     # Start with demo MySQL cluster
+> /start            # Start platform (bring your own MySQL)
+> /stop             # Stop services
 ```
 
 ## Development Commands
@@ -24,7 +41,7 @@ npm install
 # Build TypeScript
 npm run build
 
-# Run CLI
+# Run CLI locally
 node dist/bin/clawsql.js
 
 # Run tests
@@ -41,6 +58,12 @@ npm run lint
 
 # Format
 npm run format
+
+# Create npm package
+npm pack
+
+# Publish to npm (requires auth)
+npm publish
 ```
 
 ## CLI Commands

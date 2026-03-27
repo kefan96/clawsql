@@ -1,0 +1,46 @@
+# Source files (only dist is needed)
+src/
+__tests__/
+*.ts
+!*.d.ts
+
+# Config files
+tsconfig.json
+tsconfig.tsbuildinfo
+jest.config.js
+.eslintrc.*
+.prettierrc
+.prettierrc.js
+
+# Development
+coverage/
+node_modules/
+.git/
+.github/
+.claude/
+
+# Build artifacts
+*.tgz
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Misc
+.plan/
+plans/

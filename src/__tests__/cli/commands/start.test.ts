@@ -33,15 +33,37 @@ jest.mock('fs', () => ({
   copyFileSync: jest.fn(),
 }));
 
+// Mock docker-files utility
+jest.mock('../../../cli/utils/docker-files', () => ({
+  ensureDockerFiles: jest.fn().mockResolvedValue('/root/.clawsql/docker'),
+  ensureEnvFile: jest.fn().mockResolvedValue('/root/.clawsql/docker/.env'),
+}));
+
+// Mock docker-prereq utility
+jest.mock('../../../cli/utils/docker-prereq', () => ({
+  checkDockerPrerequisites: jest.fn().mockResolvedValue({
+    runtime: 'docker',
+    composeCommand: ['docker', 'compose'],
+    version: '24.0.5',
+    daemonRunning: true,
+  }),
+  getDockerInstallGuidance: jest.fn().mockReturnValue('Install Docker from...'),
+}));
+
 // Mock fetch
 global.fetch = jest.fn();
 
 import { startCommand } from '../../../cli/commands/start';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
+import { ensureDockerFiles, ensureEnvFile } from '../../../cli/utils/docker-files';
+import { checkDockerPrerequisites } from '../../../cli/utils/docker-prereq';
 
 const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
+const mockEnsureDockerFiles = ensureDockerFiles as jest.MockedFunction<typeof ensureDockerFiles>;
+const mockEnsureEnvFile = ensureEnvFile as jest.MockedFunction<typeof ensureEnvFile>;
+const mockCheckDockerPrerequisites = checkDockerPrerequisites as jest.MockedFunction<typeof checkDockerPrerequisites>;
 
 describe('startCommand', () => {
   let mockContext: any;
@@ -65,6 +87,16 @@ describe('startCommand', () => {
 
     consoleSpy = jest.spyOn(console, 'log').mockImplementation();
     jest.clearAllMocks();
+
+    // Reset mock implementations
+    mockEnsureDockerFiles.mockResolvedValue('/root/.clawsql/docker');
+    mockEnsureEnvFile.mockResolvedValue('/root/.clawsql/docker/.env');
+    mockCheckDockerPrerequisites.mockResolvedValue({
+      runtime: 'docker',
+      composeCommand: ['docker', 'compose'],
+      version: '24.0.5',
+      daemonRunning: true,
+    });
 
     // Mock process.cwd
     jest.spyOn(process, 'cwd').mockReturnValue('/root/clawsql');
@@ -112,15 +144,11 @@ describe('startCommand', () => {
   });
 
   it('should show error when no runtime found', async () => {
-    mockSpawn.mockImplementation(() => {
-      const proc = {
-        stdout: { on: jest.fn() },
-        stderr: { on: jest.fn() },
-        on: jest.fn((event: string, cb: (code: number) => void) => {
-          if (event === 'close') cb(1);
-        }),
-      };
-      return proc as any;
+    mockCheckDockerPrerequisites.mockResolvedValueOnce({
+      runtime: null,
+      composeCommand: null,
+      version: '',
+      daemonRunning: false,
     });
 
     await startCommand.handler([], mockContext);
@@ -131,7 +159,7 @@ describe('startCommand', () => {
   it('should detect docker runtime', async () => {
     await startCommand.handler([], mockContext);
 
-    expect(mockSpawn).toHaveBeenCalled();
+    expect(mockCheckDockerPrerequisites).toHaveBeenCalled();
   });
 
   it('should start in demo mode', async () => {
@@ -146,54 +174,24 @@ describe('startCommand', () => {
     expect(mockContext.formatter.info).toHaveBeenCalledWith(expect.stringContaining('bring your own MySQL'));
   });
 
-  it('should create .env from example if not exists', async () => {
-    mockExistsSync
-      .mockReturnValueOnce(true)  // docker-compose.yml exists
-      .mockReturnValueOnce(false) // .env doesn't exist
-      .mockReturnValueOnce(true); // .env.example exists
-
+  it('should ensure docker files are extracted', async () => {
     await startCommand.handler([], mockContext);
 
-    expect(mockContext.formatter.success).toHaveBeenCalledWith(expect.stringContaining('Created .env'));
+    expect(mockEnsureDockerFiles).toHaveBeenCalled();
+    expect(mockEnsureEnvFile).toHaveBeenCalled();
   });
 
   it('should handle compose failure', async () => {
     mockSpawn.mockImplementation(() => {
       const proc = {
-        stdout: {
-          on: jest.fn((event: string, cb: (data: Buffer) => void) => {
-            if (event === 'data') cb(Buffer.from('docker info'));
-          }),
-        },
-        stderr: {
-          on: jest.fn((event: string, cb: (data: Buffer) => void) => {
-            if (event === 'data') cb(Buffer.from('error'));
-          }),
-        },
-        on: jest.fn((event: string, cb: (code: number) => void) => {
-          if (event === 'close') cb(1);
-        }),
-      };
-      return proc as any;
-    });
-
-    // First call (runtime detect) succeeds, second call (compose) fails
-    let callCount = 0;
-    mockSpawn.mockImplementation(() => {
-      callCount++;
-      const proc = {
-        stdout: {
-          on: jest.fn((event: string, cb: (data: Buffer) => void) => {
-            if (event === 'data') cb(Buffer.from(callCount === 1 ? 'docker info' : ''));
-          }),
-        },
+        stdout: { on: jest.fn() },
         stderr: {
           on: jest.fn((event: string, cb: (data: Buffer) => void) => {
             if (event === 'data') cb(Buffer.from('compose error'));
           }),
         },
         on: jest.fn((event: string, cb: (code: number) => void) => {
-          if (event === 'close') cb(callCount === 1 ? 0 : 1);
+          if (event === 'close') cb(1);
         }),
       };
       return proc as any;
@@ -232,26 +230,16 @@ describe('startCommand', () => {
     expect(mockSpawn).toHaveBeenCalled();
   }, 10000);
 
-  it('should detect podman masquerading as docker', async () => {
-    mockSpawn.mockImplementation(() => {
-      const proc = {
-        stdout: {
-          on: jest.fn((event: string, cb: (data: Buffer) => void) => {
-            if (event === 'data') {
-              cb(Buffer.from('podman version 4.0.0'));
-            }
-          }),
-        },
-        stderr: { on: jest.fn() },
-        on: jest.fn((event: string, cb: (code: number) => void) => {
-          if (event === 'close') cb(0);
-        }),
-      };
-      return proc as any;
+  it('should handle podman runtime', async () => {
+    mockCheckDockerPrerequisites.mockResolvedValueOnce({
+      runtime: 'podman',
+      composeCommand: ['podman-compose'],
+      version: '4.0.0',
+      daemonRunning: true,
     });
 
     await startCommand.handler([], mockContext);
 
-    expect(mockSpawn).toHaveBeenCalled();
+    expect(mockCheckDockerPrerequisites).toHaveBeenCalled();
   });
 });

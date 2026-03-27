@@ -9,6 +9,8 @@ import { theme, indicators } from '../ui/components.js';
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { getDockerFilesDir, ensureDockerFiles } from '../utils/docker-files.js';
+import { checkDockerPrerequisites } from '../utils/docker-prereq.js';
 
 /**
  * Cleanup command
@@ -32,32 +34,38 @@ export const cleanupCommand: Command = {
       }
     }
 
-    // Detect runtime
-    const runtime = await detectRuntime();
-    if (!runtime) {
+    // Check Docker prerequisites
+    const dockerInfo = await checkDockerPrerequisites();
+    if (!dockerInfo.runtime) {
       console.log(theme.error('No container runtime found'));
       return;
     }
 
-    // Find project root
-    const projectRoot = findProjectRoot();
+    // Get docker files path (extracts if needed, but we can still cleanup without it)
+    let dockerPath: string | null = null;
+    try {
+      dockerPath = await ensureDockerFiles();
+    } catch {
+      // Use default path
+      dockerPath = getDockerFilesDir();
+    }
 
     // Stop and remove containers
     console.log(theme.secondary('Stopping containers...'));
-    await stopContainers(runtime);
+    await stopContainers(dockerInfo.runtime);
 
     // Remove volumes
     console.log(theme.secondary('Removing volumes...'));
-    await removeVolumes(runtime);
+    await removeVolumes(dockerInfo.runtime);
 
     // Remove images (optional)
     console.log(theme.secondary('Removing images...'));
-    await removeImages(runtime);
+    await removeImages(dockerInfo.runtime);
 
     // Remove local data directories
-    if (projectRoot) {
+    if (dockerPath && fs.existsSync(dockerPath)) {
       console.log(theme.secondary('Removing local data...'));
-      await removeLocalData(projectRoot);
+      await removeLocalData(dockerPath);
     }
 
     console.log();
@@ -65,43 +73,6 @@ export const cleanupCommand: Command = {
     console.log(theme.muted('Run "clawsql start" to start fresh.'));
   },
 };
-
-/**
- * Detect container runtime
- */
-async function detectRuntime(): Promise<string | null> {
-  const runtimes = ['docker', 'podman'];
-
-  for (const runtime of runtimes) {
-    try {
-      const result = await execCommand([runtime, 'info'], true);
-      if (result.success) {
-        return runtime;
-      }
-    } catch {
-      // Continue
-    }
-  }
-
-  return null;
-}
-
-/**
- * Find project root directory
- */
-function findProjectRoot(): string | null {
-  let dir = process.cwd();
-
-  while (dir !== '/') {
-    const composePath = path.join(dir, 'docker-compose.yml');
-    if (fs.existsSync(composePath)) {
-      return dir;
-    }
-    dir = path.dirname(dir);
-  }
-
-  return null;
-}
 
 /**
  * Stop all ClawSQL containers

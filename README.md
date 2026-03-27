@@ -15,7 +15,23 @@ MySQL High Availability Management Platform with automatic failover, read/write 
 
 - **Container Runtime**: Docker or Podman
 - **Docker Compose**: docker-compose or podman-compose
-- **Node.js**: v18+ (for CLI development)
+
+## Installation
+
+### Via npm (Recommended)
+
+```bash
+npm install -g clawsql
+```
+
+### From Source
+
+```bash
+git clone https://github.com/clawsql/clawsql.git
+cd clawsql
+npm install
+npm run build
+```
 
 ## Quick Start
 
@@ -26,7 +42,8 @@ MySQL High Availability Management Platform with automatic failover, read/write 
 Start with a pre-configured demo MySQL cluster:
 
 ```bash
-./start.sh --demo
+clawsql
+> /start --demo
 ```
 
 This starts:
@@ -38,27 +55,30 @@ This starts:
 Start the platform and connect to your existing MySQL instances:
 
 ```bash
-# Start platform
-./start.sh
+# Start the interactive CLI
+clawsql
+
+# Start platform services
+> /start
 
 # Configure MySQL credentials
-node dist/bin/clawsql.js -c "/config set mysql.admin_user root"
-node dist/bin/clawsql.js -c "/config set mysql.admin_password yourpassword"
+> /config set mysql.admin_user root
+> /config set mysql.admin_password yourpassword
 
-# Create Orchestrator user on your MySQL instances
-mysql -e "CREATE USER 'clawsql'@'%' IDENTIFIED BY 'clawsql_password'; GRANT ALL ON *.* TO 'clawsql'@'%' WITH GRANT OPTION;"
+# Create Orchestrator user on your MySQL instances (run on your MySQL server)
+# mysql -e "CREATE USER 'clawsql'@'%' IDENTIFIED BY 'clawsql_password'; GRANT ALL ON *.* TO 'clawsql'@'%' WITH GRANT OPTION;"
 
 # Discover MySQL instances on your network
-node dist/bin/clawsql.js -c "/instances discover 172.18.0.0/24 --user root --password yourpassword"
+> /instances discover 172.18.0.0/24 --user root --password yourpassword
 
 # Or register instances manually
-node dist/bin/clawsql.js -c "/instances register --host mysql-primary --port 3306"
+> /instances register --host mysql-primary --port 3306
 
 # Sync to ProxySQL
-node dist/bin/clawsql.js -c "/clusters sync"
+> /clusters sync
 
 # Verify health
-node dist/bin/clawsql.js -c "/doctor"
+> /doctor
 ```
 
 ## Services
@@ -297,7 +317,7 @@ npm install
 # Build TypeScript
 npm run build
 
-# Run CLI
+# Run CLI locally
 node dist/bin/clawsql.js
 
 # Run tests
@@ -336,15 +356,15 @@ clawsql/
 ### Check Platform Health
 
 ```bash
-node dist/bin/clawsql.js -c "/doctor"
+clawsql -c "/doctor"
 ```
 
 ### View Logs
 
 ```bash
-docker-compose logs -f clawsql
-docker-compose logs -f orchestrator
-docker-compose logs -f proxysql
+docker compose logs -f clawsql
+docker compose logs -f orchestrator
+docker compose logs -f proxysql
 ```
 
 ### Check MySQL Replication
