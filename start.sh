@@ -200,10 +200,14 @@ echo -e "${GREEN}✓ Container runtime is running${NC}"
 if [ -z "$COMPOSE_CMD" ]; then
     echo -e "${RED}✗ Docker Compose / Podman Compose not found${NC}"
     echo ""
-    echo "Please install docker-compose or podman-compose:"
-    echo "  pip install docker-compose"
-    echo "  # or"
-    echo "  pip install podman-compose"
+    echo "Install Docker Compose:"
+    echo "  • Docker Desktop (Mac/Windows): Includes docker compose"
+    echo "  • Linux (apt): apt install docker-compose-plugin"
+    echo "  • Linux (dnf): dnf install docker-compose-plugin"
+    echo ""
+    echo "Or Podman Compose:"
+    echo "  • dnf install podman-compose"
+    echo "  • apt install podman-compose"
     exit 1
 fi
 echo -e "${GREEN}✓ Compose: ${COMPOSE_CMD}${NC}"

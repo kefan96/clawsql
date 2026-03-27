@@ -190,11 +190,29 @@ export async function checkDockerPrerequisites(): Promise<DockerInfo> {
 }
 
 /**
+ * Get installation guidance for Docker Compose or Podman Compose
+ */
+export function getComposeInstallGuidance(runtime: 'docker' | 'podman' | null): string {
+  if (runtime === 'podman') {
+    return `Install podman-compose:
+  • Linux (dnf):   dnf install podman-compose
+  • Linux (apt):   apt install podman-compose
+  • pip:           pip install podman-compose`;
+  }
+
+  // Docker or no runtime detected
+  return `Install Docker Compose:
+  • Docker Desktop (Mac/Windows): Includes docker compose
+  • Linux (apt):   apt install docker-compose-plugin
+  • Linux (dnf):   dnf install docker-compose-plugin
+  • Standalone:    https://github.com/docker/compose/releases`;
+}
+
+/**
  * Get installation guidance for Docker
  */
 export function getDockerInstallGuidance(): string {
-  return `
-Docker is required to run ClawSQL platform.
+  return `Docker is required to run ClawSQL platform.
 
 Install Docker:
   • macOS:   https://docs.docker.com/desktop/install/mac-install/
@@ -202,13 +220,13 @@ Install Docker:
   • Linux:   https://docs.docker.com/engine/install/
 
 After installing Docker, also ensure Docker Compose is available:
-  • Docker Desktop includes Compose
-  • Linux: pip install docker-compose
+  • Docker Desktop (Mac/Windows): Includes docker compose
+  • Linux: apt install docker-compose-plugin
+  • Standalone: https://github.com/docker/compose/releases
 
 Alternative: Podman
   • Install: https://podman.io/getting-started/installation
-  • Compose: pip install podman-compose
-`.trim();
+  • Compose: dnf install podman-compose or apt install podman-compose`;
 }
 
 /**

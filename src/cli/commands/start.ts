@@ -11,6 +11,7 @@ import { ensureDockerFiles, ensureEnvFile } from '../utils/docker-files.js';
 import {
   checkDockerPrerequisites,
   getDockerInstallGuidance,
+  getComposeInstallGuidance,
 } from '../utils/docker-prereq.js';
 
 /**
@@ -43,7 +44,7 @@ export const startCommand: Command = {
 
     if (!dockerInfo.composeCommand) {
       console.log(formatter.error('Docker Compose not found'));
-      console.log(formatter.info('Install: pip install docker-compose'));
+      console.log(getComposeInstallGuidance(dockerInfo.runtime));
       return;
     }
 
@@ -65,6 +66,8 @@ export const startCommand: Command = {
 
     // Build compose arguments
     const composeArgs: string[] = [];
+    const composeEnv: Record<string, string> = {};
+    const isPodmanCompose = dockerInfo.composeCommand[0] === 'podman-compose';
 
     // Add file flags first if demo mode
     if (demoMode) {
@@ -77,7 +80,12 @@ export const startCommand: Command = {
     // Add metadata profile if no external DB configured
     const metadataDbHost = process.env.METADATA_DB_HOST;
     if (!metadataDbHost) {
-      composeArgs.push('--profile', 'metadata');
+      // podman-compose doesn't support --profile flag, use environment variable instead
+      if (isPodmanCompose) {
+        composeEnv.COMPOSE_PROFILES = 'metadata';
+      } else {
+        composeArgs.push('--profile', 'metadata');
+      }
       console.log(formatter.info('Auto-provisioning metadata database...'));
     }
 
@@ -86,7 +94,10 @@ export const startCommand: Command = {
 
     // Execute compose up
     console.log();
-    const result = await executeCommand(dockerInfo.composeCommand, composeArgs, { cwd: dockerPath });
+    const result = await executeCommand(dockerInfo.composeCommand, composeArgs, {
+      cwd: dockerPath,
+      env: Object.keys(composeEnv).length > 0 ? composeEnv : undefined,
+    });
 
     if (!result.success) {
       console.log(formatter.error('Failed to start services'));
@@ -160,12 +171,13 @@ async function waitForAPI(ctx: CLIContext, timeoutSeconds: number): Promise<bool
 function executeCommand(
   cmd: string[],
   args: string[],
-  options?: { cwd?: string; silent?: boolean }
+  options?: { cwd?: string; silent?: boolean; env?: Record<string, string> }
 ): Promise<{ success: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const proc = spawn(cmd[0], [...cmd.slice(1), ...args], {
       cwd: options?.cwd,
       stdio: options?.silent ? 'pipe' : 'inherit',
+      env: options?.env ? { ...process.env, ...options.env } : process.env,
     });
 
     let stdout = '';
