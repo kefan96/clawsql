@@ -183,7 +183,10 @@ export class OrchestratorClient {
   async getInstance(host: string, port: number = 3306): Promise<MySQLInstance | null> {
     try {
       const response = await this.client.get(`/api/instance/${host}/${port}`);
-      return this.parseInstance(response.data);
+      logger.debug({ host, port, data: response.data }, 'Orchestrator getInstance response');
+      const instance = this.parseInstance(response.data);
+      logger.debug({ host, port, instance }, 'Parsed instance');
+      return instance;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         return null;

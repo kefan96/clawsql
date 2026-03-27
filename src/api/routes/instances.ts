@@ -13,6 +13,7 @@ import {
   InstanceState,
   createMySQLInstance,
   createInstanceId,
+  MySQLInstance,
 } from '../../types/index.js';
 import { NotFoundError, AlreadyExistsError } from '../../utils/exceptions.js';
 import { getMetricsCollector } from '../../core/monitoring/collector.js';
@@ -25,18 +26,6 @@ interface InstanceMetadataRow {
   extra: string;
   created_at: string;
   updated_at: string;
-}
-
-interface OrchestratorInstanceRow {
-  hostname: string;
-  port: number;
-  server_id: number;
-  version: string;
-  cluster_name: string;
-  replication_lag_seconds: number;
-  slave_lag_seconds: number;
-  last_checked: string;
-  last_seen: string;
 }
 
 /**
@@ -118,7 +107,7 @@ function parseLabels(value: unknown): Record<string, string> {
  */
 function toResponse(
   metadata: InstanceMetadataRow,
-  orchestratorData?: OrchestratorInstanceRow
+  orchestratorData?: MySQLInstance | null
 ) {
   const labels = parseLabels(metadata.labels);
   const extra = parseJsonField(metadata.extra);
@@ -127,19 +116,23 @@ function toResponse(
   const [host, portStr] = metadata.instance_id.split(':');
   const port = parseInt(portStr, 10) || 3306;
 
+  // Convert InstanceRole enum to string
+  const role = orchestratorData?.role?.toLowerCase() || 'unknown';
+  const state = orchestratorData?.state?.toLowerCase() || 'offline';
+
   return {
     instance_id: metadata.instance_id,
     host,
     port,
-    server_id: orchestratorData?.server_id ?? null,
-    role: orchestratorData ? (orchestratorData as unknown as { master_host?: string }).master_host ? 'replica' : 'primary' : 'unknown',
-    state: orchestratorData ? 'online' : 'offline',
+    server_id: orchestratorData?.serverId ?? null,
+    role,
+    state,
     version: orchestratorData?.version ?? null,
-    cluster_id: orchestratorData?.cluster_name ?? null,
-    replication_lag: orchestratorData?.replication_lag_seconds ?? null,
+    cluster_id: orchestratorData?.clusterId ?? null,
+    replication_lag: orchestratorData?.replicationLag ?? null,
     labels,
     extra,
-    last_seen: orchestratorData?.last_seen ?? metadata.updated_at,
+    last_seen: orchestratorData?.lastSeen?.toISOString?.() ?? metadata.updated_at,
     created_at: metadata.created_at,
   };
 }
@@ -165,7 +158,7 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
         const port = parseInt(portStr, 10) || 3306;
         try {
           const topo = await orchestrator.getInstance(host, port);
-          return toResponse(m, topo as unknown as OrchestratorInstanceRow);
+          return toResponse(m, topo);
         } catch {
           return toResponse(m);
         }
@@ -213,7 +206,7 @@ const instancesRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       const topo = await orchestrator.getInstance(host, port);
-      return toResponse(metadata, topo as unknown as OrchestratorInstanceRow);
+      return toResponse(metadata, topo);
     } catch {
       return toResponse(metadata);
     }
