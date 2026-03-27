@@ -16,9 +16,6 @@ services:
       - "3306:3306"
     environment:
       - MYSQL_ROOT_PASSWORD=rootpassword
-      - MYSQL_DATABASE=clawsql
-      - MYSQL_USER=clawsql
-      - MYSQL_PASSWORD=clawsqlpassword
     command: >
       --server-id=1
       --log-bin=mysql-bin

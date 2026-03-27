@@ -23,7 +23,7 @@ jest.mock('pino', () => {
 jest.mock('../../config/settings', () => ({
   getSettings: jest.fn().mockReturnValue({
     appName: 'ClawSQL',
-    appVersion: '0.1.5',
+    appVersion: '0.1.6',
     logging: {
       level: 'INFO',
       format: 'text',
