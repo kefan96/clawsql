@@ -8,14 +8,30 @@ This guide walks you through setting up and using ClawSQL for MySQL high availab
 - **Docker Compose**: `docker-compose` or `podman-compose`
 - **Node.js**: v18+ (for CLI development)
 
-## Step 1: Start the Platform
+## Step 1: Install and Start the Platform
+
+### Installation
+
+First, install ClawSQL and pull the required Docker images:
+
+```bash
+# Install via npm
+npm install -g clawsql
+
+# Pull required Docker images
+clawsql install --demo    # For demo mode (includes MySQL images)
+# or
+clawsql install           # For production mode (platform images only)
+```
+
+The `install` command pulls all required Docker images. This is a one-time setup that makes subsequent starts much faster.
 
 ### Demo Mode (Recommended for Testing)
 
 Start with a pre-configured demo MySQL cluster (1 primary + 2 replicas):
 
 ```bash
-./start.sh --demo
+clawsql -c "/start --demo"
 ```
 
 This starts:
@@ -28,7 +44,7 @@ Start the platform and connect to your existing MySQL instances:
 
 ```bash
 # Start platform services only
-./start.sh
+clawsql -c "/start"
 ```
 
 Then create the admin user on your MySQL instances:
@@ -43,13 +59,13 @@ mysql -e "CREATE USER 'clawsql'@'%' IDENTIFIED WITH mysql_native_password BY 'cl
 Check platform status:
 
 ```bash
-/status
+clawsql -c "/status"
 ```
 
 Run diagnostics:
 
 ```bash
-/doctor
+clawsql -c "/doctor"
 ```
 
 ### Access Services

@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm install -g clawsql
-clawsql
-> /start --demo
+clawsql install --demo    # Pull Docker images (one-time setup)
+clawsql -c "/start --demo"
 ```
 
 ### From Source (For Development)
@@ -26,6 +26,7 @@ node dist/bin/clawsql.js
 
 ```bash
 # Using the CLI
+clawsql install --demo   # Pull images first (one-time)
 clawsql
 > /start --demo     # Start with demo MySQL cluster
 > /start            # Start platform (bring your own MySQL)
@@ -73,10 +74,17 @@ The ClawSQL CLI provides interactive management of MySQL clusters.
 ### Platform Lifecycle
 
 ```bash
-/start [--demo]     # Start ClawSQL platform
-/stop               # Stop all services
-/status             # Show platform status
-/cleanup            # Remove all containers and data
+/install [--demo]     # Pull Docker images (required before first start)
+                      # --demo: Include MySQL demo cluster images
+                      # --detail: Show verbose output
+
+/start [--demo]       # Start ClawSQL platform
+                      # --demo: Start with demo MySQL cluster
+                      # --pull: Force pull missing images
+
+/stop                 # Stop all services
+/status               # Show platform status (images, containers, services)
+/cleanup              # Remove all containers and data
 /doctor             # Run diagnostics and suggest fixes
 ```
 

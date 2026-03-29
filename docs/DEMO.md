@@ -6,21 +6,25 @@ This guide shows how to use ClawSQL with a demo MySQL cluster for testing and ev
 
 ## Quick Start
 
-### Using start.sh
+### Installation
 
 ```bash
-# Start with demo MySQL cluster (primary + 2 replicas)
-./start.sh --demo
+# Install via npm
+npm install -g clawsql
+
+# Pull all required images (including demo MySQL)
+clawsql install --demo
 ```
 
-### Using CLI
+### Starting the Platform
 
 ```bash
-# Build the project
-npm run build
+# Using CLI
+clawsql -c "/start --demo"
 
-# Start with demo mode
-node dist/bin/clawsql.js -c "/start --demo"
+# Or interactively
+clawsql
+> /start --demo
 ```
 
 This starts:
@@ -57,16 +61,16 @@ After starting with `--demo`, register the MySQL instances using your host IP:
 HOST_IP=<your-host-ip>
 
 # Register instances
-node dist/bin/clawsql.js -c "/instances register ${HOST_IP} 3306"
-node dist/bin/clawsql.js -c "/instances register ${HOST_IP} 3307"
-node dist/bin/clawsql.js -c "/instances register ${HOST_IP} 3308"
+clawsql -c "/instances register ${HOST_IP} 3306"
+clawsql -c "/instances register ${HOST_IP} 3307"
+clawsql -c "/instances register ${HOST_IP} 3308"
 
 # Set up replication (creates repl user automatically)
-node dist/bin/clawsql.js -c "/instances setup-replication --host ${HOST_IP}:3307 --master ${HOST_IP}:3306"
-node dist/bin/clawsql.js -c "/instances setup-replication --host ${HOST_IP}:3308 --master ${HOST_IP}:3306"
+clawsql -c "/instances setup-replication --host ${HOST_IP}:3307 --master ${HOST_IP}:3306"
+clawsql -c "/instances setup-replication --host ${HOST_IP}:3308 --master ${HOST_IP}:3306"
 
 # Verify topology
-node dist/bin/clawsql.js -c "/clusters topology"
+clawsql -c "/clusters topology"
 ```
 
 ### 1. Using the CLI
@@ -75,19 +79,19 @@ The ClawSQL CLI provides an interactive way to manage your clusters:
 
 ```bash
 # Check platform status
-node dist/bin/clawsql.js -c "/status"
+clawsql -c "/status"
 
 # Run diagnostics
-node dist/bin/clawsql.js -c "/doctor"
+clawsql -c "/doctor"
 
 # List discovered instances
-node dist/bin/clawsql.js -c "/instances list"
+clawsql -c "/instances list"
 
 # View cluster topology
-node dist/bin/clawsql.js -c "/clusters topology"
+clawsql -c "/clusters topology"
 
 # Sync cluster to ProxySQL
-node dist/bin/clawsql.js -c "/clusters sync"
+clawsql -c "/clusters sync"
 ```
 
 ### 2. Instance Discovery

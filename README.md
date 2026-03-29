@@ -42,6 +42,13 @@ npm run build
 Start with a pre-configured demo MySQL cluster:
 
 ```bash
+# Install ClawSQL
+npm install -g clawsql
+
+# Pull required Docker images (do this once)
+clawsql install --demo
+
+# Start the platform
 clawsql
 > /start --demo
 ```
@@ -71,6 +78,12 @@ After starting, register the instances using your host IP:
 Start the platform and connect to your existing MySQL instances:
 
 ```bash
+# Install ClawSQL
+npm install -g clawsql
+
+# Pull required Docker images
+clawsql install
+
 # Start the interactive CLI
 clawsql
 
@@ -133,11 +146,18 @@ When started with `--demo`, MySQL containers use host networking to simulate rea
 ### Platform Lifecycle
 
 ```bash
-/start [--demo]     # Start ClawSQL platform
-/stop               # Stop all services
-/status             # Show platform status
-/cleanup            # Remove all containers and data
-/doctor             # Run diagnostics and suggest fixes
+/install [--demo]     # Pull Docker images (required before first start)
+                      # --demo: Include MySQL demo cluster images
+                      # --detail: Show verbose output
+
+/start [--demo]       # Start ClawSQL platform
+                      # --demo: Start with demo MySQL cluster
+                      # --pull: Force pull missing images
+
+/stop                 # Stop all services
+/status               # Show platform status (images, containers, services)
+/cleanup              # Remove all containers and data
+/doctor               # Run diagnostics and suggest fixes
 ```
 
 ### Configuration
