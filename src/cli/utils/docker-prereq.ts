@@ -325,3 +325,101 @@ export function formatDockerInfo(info: DockerInfo): string {
 
   return lines.join('\n');
 }
+
+/**
+ * Required Docker images for ClawSQL platform
+ */
+export const CORE_IMAGES = [
+  'ghcr.io/openclaw/openclaw:latest',
+  'docker.io/openarkcode/orchestrator:latest',
+  'docker.io/proxysql/proxysql:latest',
+  'docker.io/prom/prometheus:latest',
+  'docker.io/grafana/grafana:latest',
+  'docker.io/library/mysql:8.0',
+  'docker.io/kefan96/clawsql:latest',
+];
+
+/**
+ * Image check result
+ */
+export interface ImageStatus {
+  /** Images that are present locally */
+  installed: string[];
+  /** Images that are missing */
+  missing: string[];
+  /** Total images checked */
+  total: number;
+}
+
+/**
+ * Check if required Docker images are installed
+ */
+export async function checkImagesInstalled(runtime: 'docker' | 'podman' | null | string): Promise<ImageStatus> {
+  if (!runtime) {
+    return { installed: [], missing: CORE_IMAGES, total: CORE_IMAGES.length };
+  }
+
+  // Get list of local images
+  const result = await execCommand(
+    [runtime, 'images', '--format', '{{.Repository}}:{{.Tag}}'],
+    { silent: true, timeout: 10000 }
+  );
+
+  if (!result.success) {
+    return { installed: [], missing: CORE_IMAGES, total: CORE_IMAGES.length };
+  }
+
+  const localImages = new Set(
+    result.stdout
+      .trim()
+      .split('\n')
+      .map(img => img.trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  // Also check for images without registry prefix (docker outputs differently)
+  const shortNames = new Set(
+    Array.from(localImages).map(img => {
+      // Remove common registry prefixes for matching
+      return img
+        .replace(/^docker\.io\//, '')
+        .replace(/^docker\.io\/library\//, '')
+        .replace(/^ghcr\.io\//, '');
+    })
+  );
+
+  const installed: string[] = [];
+  const missing: string[] = [];
+
+  for (const image of CORE_IMAGES) {
+    const imageLower = image.toLowerCase();
+    const shortName = imageLower
+      .replace(/^docker\.io\//, '')
+      .replace(/^docker\.io\/library\//, '')
+      .replace(/^ghcr\.io\//, '');
+
+    // Check various forms of the image name
+    if (localImages.has(imageLower) ||
+        localImages.has(shortName) ||
+        shortNames.has(shortName) ||
+        // Handle docker's shorthand output (e.g., "openclaw/openclaw" instead of full path)
+        Array.from(localImages).some(local =>
+          local.endsWith(shortName) || local.endsWith(imageLower.split('/').pop() || '')
+        )) {
+      installed.push(image);
+    } else {
+      missing.push(image);
+    }
+  }
+
+  return { installed, missing, total: CORE_IMAGES.length };
+}
+
+/**
+ * Check if demo MySQL images are installed (same mysql:8.0 image)
+ */
+export function areDemoImagesInstalled(imageStatus: ImageStatus): boolean {
+  // Demo uses the same mysql:8.0 image which is part of core images
+  // So if core images are installed, demo images are also installed
+  return imageStatus.missing.length === 0;
+}

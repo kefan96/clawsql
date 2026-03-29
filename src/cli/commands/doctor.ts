@@ -12,6 +12,10 @@ import {
   getOpenClawStatus,
   isGatewayHealthy,
 } from '../agent/openclaw-integration.js';
+import {
+  detectRuntime,
+  checkImagesInstalled,
+} from '../utils/docker-prereq.js';
 
 /**
  * Diagnostic result severity
@@ -74,7 +78,8 @@ export const doctorCommand: Command = {
  */
 async function runDiagnostics(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
   // Platform checks
-  await checkContainerRuntime(results);
+  const runtime = await checkContainerRuntime(results);
+  await checkDockerImages(runtime, results);
   await checkClawSQLAPI(ctx, results);
   await checkOrchestrator(ctx, results);
   await checkProxySQL(ctx, results);
@@ -95,7 +100,7 @@ async function runDiagnostics(ctx: CLIContext, results: DiagnosticResult[]): Pro
 /**
  * Check container runtime availability
  */
-async function checkContainerRuntime(results: DiagnosticResult[]): Promise<void> {
+async function checkContainerRuntime(results: DiagnosticResult[]): Promise<string | null> {
   const runtimes = ['docker', 'podman'];
   let foundRuntime = '';
 
@@ -155,6 +160,45 @@ async function checkContainerRuntime(results: DiagnosticResult[]): Promise<void>
       severity: 'error',
       message: 'No container runtime found (docker or podman required)',
       fix: 'Install Docker from https://docs.docker.com/get-docker/',
+    });
+  }
+
+  return foundRuntime || null;
+}
+
+/**
+ * Check if Docker images are installed
+ */
+async function checkDockerImages(runtime: string | null, results: DiagnosticResult[]): Promise<void> {
+  if (!runtime) {
+    return; // Already reported in container runtime check
+  }
+
+  const imageStatus = await checkImagesInstalled(runtime);
+
+  if (imageStatus.installed.length === imageStatus.total) {
+    results.push({
+      name: 'Docker Images',
+      severity: 'ok',
+      message: `All ${imageStatus.total} images installed`,
+    });
+  } else if (imageStatus.installed.length === 0) {
+    results.push({
+      name: 'Docker Images',
+      severity: 'error',
+      message: 'No Docker images installed',
+      detail: 'Required images have not been pulled',
+      fix: 'Pull images with: /install',
+      fixCommand: '/install',
+    });
+  } else {
+    results.push({
+      name: 'Docker Images',
+      severity: 'warning',
+      message: `${imageStatus.installed.length}/${imageStatus.total} images installed`,
+      detail: `Missing: ${imageStatus.missing.slice(0, 3).map(i => i.split('/').pop()).join(', ')}${imageStatus.missing.length > 3 ? '...' : ''}`,
+      fix: 'Pull missing images with: /install',
+      fixCommand: '/install',
     });
   }
 }
@@ -434,26 +478,6 @@ async function checkOpenClaw(_ctx: CLIContext, results: DiagnosticResult[]): Pro
       fix: 'Ensure OpenClaw container is running: docker ps | grep openclaw',
     });
   }
-}
-
-/**
- * Detect container runtime
- */
-async function detectRuntime(): Promise<string | null> {
-  const runtimes = ['docker', 'podman'];
-
-  for (const runtime of runtimes) {
-    try {
-      const result = await execCommand([runtime, 'info'], true);
-      if (result.success) {
-        return runtime;
-      }
-    } catch {
-      // Continue
-    }
-  }
-
-  return null;
 }
 
 /**

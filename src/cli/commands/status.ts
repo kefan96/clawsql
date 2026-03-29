@@ -11,6 +11,15 @@ import {
   getOpenClawStatus,
   isGatewayHealthy,
 } from '../agent/openclaw-integration.js';
+import {
+  detectRuntime,
+  checkImagesInstalled,
+} from '../utils/docker-prereq.js';
+
+/**
+ * Platform state
+ */
+type PlatformState = 'running' | 'stopped' | 'not-installed' | 'no-runtime';
 
 /**
  * Status command
@@ -23,13 +32,27 @@ export const statusCommand: Command = {
     const formatter = ctx.formatter;
     const jsonOutput = args.includes('--json');
 
+    // Detect runtime
+    const runtime = await detectRuntime();
+
+    // Check image installation status
+    const imageStatus = await checkImagesInstalled(runtime);
+
     // Check OpenClaw status
     const openClawStatus = await getOpenClawStatus();
     const openClawGatewayHealthy = openClawStatus.available ? await isGatewayHealthy() : false;
 
+    // Get container status
+    const containers = await getContainerStatus(runtime);
+
+    // Determine platform state
+    const platformState = determinePlatformState(imageStatus, containers);
+
     const status = {
-      runtime: await detectRuntime(),
-      containers: await getContainerStatus(),
+      runtime: runtime,
+      images: imageStatus,
+      platformState,
+      containers,
       services: {
         clawsql: await checkService(`http://localhost:${ctx.settings.api.port}/health`, 'healthy'),
         orchestrator: await checkService('http://localhost:3000/api/health', 'OK'),
@@ -53,20 +76,53 @@ export const statusCommand: Command = {
 
     console.log(formatter.header('ClawSQL Platform Status'));
 
+    // Installation Status
+    console.log(formatter.section('Installation'));
+    if (imageStatus.installed.length === imageStatus.total) {
+      console.log(`  ${theme.success(indicators.success)} Images:     ${theme.success(`Installed (${imageStatus.total}/${imageStatus.total})`)}`);
+    } else if (imageStatus.installed.length > 0) {
+      console.log(`  ${theme.warning(indicators.warning)} Images:     ${theme.warning(`Partial (${imageStatus.installed.length}/${imageStatus.total})`)}`);
+    } else {
+      console.log(`  ${theme.error(indicators.error)} Images:     ${theme.error('Not installed')}`);
+      console.log(theme.muted('      Run: /install'));
+    }
+
+    // Platform State
+    const stateDisplay: Record<PlatformState, { icon: string; text: string; color: (s: string) => string }> = {
+      'running': { icon: indicators.success, text: 'Running', color: theme.success },
+      'stopped': { icon: indicators.warning, text: 'Stopped', color: theme.warning },
+      'not-installed': { icon: indicators.error, text: 'Not Installed', color: theme.error },
+      'no-runtime': { icon: indicators.error, text: 'No Runtime', color: theme.error },
+    };
+    const stateInfo = stateDisplay[platformState];
+    console.log(`  ${stateInfo.color(stateInfo.icon)} Platform:    ${stateInfo.color(stateInfo.text)}`);
+
+    // Show next action suggestion
+    if (platformState === 'not-installed') {
+      console.log(theme.muted('      Run: /install --demo'));
+    } else if (platformState === 'stopped') {
+      console.log(theme.muted('      Run: /start --demo'));
+    }
+
     // Runtime
     console.log(formatter.section('Container Runtime'));
-    if (status.runtime) {
-      console.log(formatter.keyValue('Runtime', theme.success(status.runtime)));
+    if (runtime) {
+      console.log(formatter.keyValue('Runtime', theme.success(runtime)));
     } else {
       console.log(formatter.keyValue('Runtime', theme.error('not found')));
+      console.log(theme.muted('  Install Docker or Podman to continue'));
     }
 
     // Containers
     console.log(formatter.section('Containers'));
-    if (status.containers.length === 0) {
-      console.log(theme.warning('  No containers running'));
+    if (containers.length === 0) {
+      if (imageStatus.installed.length > 0) {
+        console.log(theme.warning('  No containers running'));
+      } else {
+        console.log(theme.muted('  No containers (images not installed)'));
+      }
     } else {
-      for (const container of status.containers) {
+      for (const container of containers) {
         const statusColor = container.status === 'running' ? theme.success : theme.error;
         console.log(`  ${statusColor(indicators.success)} ${container.name.padEnd(20)} ${statusColor(container.status)}`);
       }
@@ -136,37 +192,43 @@ interface ContainerInfo {
 }
 
 /**
- * Detect container runtime
+ * Determine platform state based on images and containers
  */
-async function detectRuntime(): Promise<string | null> {
-  const runtimes = ['docker', 'podman'];
-
-  for (const runtime of runtimes) {
-    try {
-      const result = await execCommand([runtime, 'info'], true);
-      if (result.success) {
-        return runtime;
-      }
-    } catch {
-      // Continue
-    }
+function determinePlatformState(
+  imageStatus: { installed: string[]; missing: string[]; total: number },
+  containers: ContainerInfo[]
+): PlatformState {
+  // If no images installed
+  if (imageStatus.installed.length === 0) {
+    return 'not-installed';
   }
 
-  return null;
+  // If some containers are running
+  const runningContainers = containers.filter(c => c.status === 'running');
+  if (runningContainers.length > 0) {
+    return 'running';
+  }
+
+  // If containers exist but not running
+  if (containers.length > 0) {
+    return 'stopped';
+  }
+
+  // Images installed but no containers - ready to start
+  return 'stopped';
 }
 
 /**
  * Get container status
  */
-async function getContainerStatus(): Promise<ContainerInfo[]> {
-  const runtime = await detectRuntime();
+async function getContainerStatus(runtime: string | null): Promise<ContainerInfo[]> {
   if (!runtime) return [];
 
   try {
     const result = await execCommand(
-      [runtime, 'ps', '--filter', 'name=clawsql', '--filter', 'name=orchestrator',
+      [runtime, 'ps', '-a', '--filter', 'name=clawsql', '--filter', 'name=orchestrator',
        '--filter', 'name=proxysql', '--filter', 'name=prometheus', '--filter', 'name=grafana',
-       '--filter', 'name=openclaw',
+       '--filter', 'name=openclaw', '--filter', 'name=mysql-primary', '--filter', 'name=mysql-replica',
        '--format', '{{.Names}}\t{{.Status}}'],
       true
     );

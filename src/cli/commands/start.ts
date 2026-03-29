@@ -26,11 +26,12 @@ import { isLocalOpenClawAvailable, isDockerOpenClawAvailable } from '../agent/in
 export const startCommand: Command = {
   name: 'start',
   description: 'Start the ClawSQL platform',
-  usage: '/start [--demo]',
+  usage: '/start [--demo] [--pull]',
   handler: async (args: string[], ctx: CLIContext) => {
     const formatter = ctx.formatter;
     const demoMode = args.includes('--demo');
     const allInOneMode = args.includes('--allinone');
+    const pullMode = args.includes('--pull');
 
     // Parse --registry flag
     const registryIndex = args.indexOf('--registry');
@@ -138,8 +139,15 @@ export const startCommand: Command = {
       }
     }
 
-    // Add up command
+    // Add up command with pull policy
     composeArgs.push('up', '-d');
+
+    // Add pull policy based on flags
+    if (pullMode) {
+      composeArgs.push('--pull', 'always');
+    }
+    // Note: By default, docker-compose will pull missing images automatically
+    // We don't add --no-pull because we want the fallback behavior
 
     // Skip OpenClaw service if already running locally
     // Note: --scale must come after 'up' in docker-compose
@@ -150,17 +158,33 @@ export const startCommand: Command = {
     // Clear progress cache for fresh start
     clearProgressCache();
 
+    // Show services to be started
+    console.log();
+    console.log(chalk.bold('Services:'));
+    const services = getServiceList(demoMode, allInOneMode, !useLocalOpenClaw);
+    for (const service of services) {
+      console.log(`  ${chalk.gray('○')} ${service}`);
+    }
+    console.log();
+
     // Track progress messages shown
     const progressMessages = new Set<string>();
     const showProgress = (msg: string) => {
       if (!progressMessages.has(msg)) {
         progressMessages.add(msg);
-        console.log(formatter.info(msg));
+        // Use different formatting based on message type
+        if (msg.includes('✓')) {
+          console.log(`  ${chalk.green(msg)}`);
+        } else if (msg.includes('...')) {
+          console.log(`  ${chalk.cyan(msg)}`);
+        } else {
+          console.log(formatter.info(msg));
+        }
       }
     };
 
     // Execute compose up with abstract progress output
-    console.log();
+    console.log(chalk.bold('Starting containers:'));
     const result = await executeCommand(dockerInfo.composeCommand, composeArgs, {
       cwd: dockerPath,
       env: Object.keys(composeEnv).length > 0 ? composeEnv : undefined,
@@ -170,30 +194,48 @@ export const startCommand: Command = {
 
     if (!result.success) {
       console.log(formatter.error('Failed to start services'));
-      console.log(formatter.info('Check logs: ~/.clawsql/logs/clawsql.log'));
+
+      // Check if error is related to missing images
+      const stderr = result.stderr.toLowerCase();
+      if (stderr.includes('no such image') ||
+          stderr.includes('image') && stderr.includes('not found') ||
+          stderr.includes('pull access denied') ||
+          stderr.includes('manifest unknown')) {
+        console.log();
+        console.log(formatter.info('Some Docker images are missing.'));
+        console.log(formatter.info('Run "/install" to download required images first.'));
+        if (demoMode) {
+          console.log(formatter.info('Or run "/install --demo" for demo MySQL images.'));
+        }
+      } else {
+        console.log(formatter.info('Check logs: ~/.clawsql/logs/clawsql.log'));
+      }
       return;
     }
 
     // Wait for API to be ready
-    console.log(formatter.info('Waiting for services to be ready...'));
+    console.log();
+    console.log(chalk.bold('Waiting for services:'));
+    console.log(`  ${chalk.cyan('ClawSQL API...')}`);
     const apiReady = await waitForAPI(ctx, 60);
 
     if (!apiReady) {
-      console.log(formatter.error('Timeout waiting for ClawSQL API'));
+      console.log(`  ${chalk.red('ClawSQL API timeout ✗')}`);
       console.log(formatter.info('Check logs: docker logs clawsql'));
       return;
     }
+    console.log(`  ${chalk.green('ClawSQL API ready ✓')}`);
 
     // Wait for OpenClaw gateway to be ready (skip if using local)
     if (!useLocalOpenClaw) {
-      console.log(formatter.info('Waiting for OpenClaw AI gateway...'));
+      console.log(`  ${chalk.cyan('OpenClaw gateway...')}`);
       const openclawReady = await waitForOpenClaw(30);
 
       if (!openclawReady) {
-        console.log(formatter.warning('OpenClaw gateway not responding (AI features may be limited)'));
+        console.log(`  ${chalk.yellow('OpenClaw gateway not ready (AI features limited)')}`);
         console.log(formatter.info('Check logs: docker logs openclaw'));
       } else {
-        console.log(formatter.success('OpenClaw gateway is ready'));
+        console.log(`  ${chalk.green('OpenClaw gateway ready ✓')}`);
       }
     }
 
@@ -308,6 +350,42 @@ async function detectHostIp(): Promise<string> {
   } catch {
     return '127.0.0.1';
   }
+}
+
+/**
+ * Get list of services to be started
+ */
+function getServiceList(demoMode: boolean, allInOneMode: boolean, includeOpenClaw: boolean): string[] {
+  const services: { name: string; desc: string }[] = [];
+
+  if (allInOneMode) {
+    services.push({ name: 'clawsql-allinone', desc: 'All-in-one container' });
+    return services.map(s => `${s.name} - ${s.desc}`);
+  }
+
+  // Core platform services
+  if (includeOpenClaw) {
+    services.push({ name: 'OpenClaw', desc: 'AI Agent Gateway' });
+  }
+  services.push({ name: 'Orchestrator', desc: 'MySQL topology management' });
+  services.push({ name: 'ProxySQL', desc: 'MySQL traffic routing' });
+  services.push({ name: 'Prometheus', desc: 'Metrics collection' });
+  services.push({ name: 'Grafana', desc: 'Visualization dashboards' });
+  services.push({ name: 'ClawSQL API', desc: 'Main application' });
+
+  // Metadata database (if auto-provisioned)
+  if (!process.env.METADATA_DB_HOST) {
+    services.push({ name: 'Metadata MySQL', desc: 'Internal state database' });
+  }
+
+  // Demo MySQL cluster
+  if (demoMode) {
+    services.push({ name: 'MySQL Primary', desc: 'Demo cluster writer (port 3306)' });
+    services.push({ name: 'MySQL Replica 1', desc: 'Demo cluster reader (port 3307)' });
+    services.push({ name: 'MySQL Replica 2', desc: 'Demo cluster reader (port 3308)' });
+  }
+
+  return services.map(s => `${s.name} - ${s.desc}`);
 }
 
 export default startCommand;

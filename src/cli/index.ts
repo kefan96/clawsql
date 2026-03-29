@@ -22,6 +22,7 @@ import stopCommand from './commands/stop.js';
 import statusCommand from './commands/status.js';
 import cleanupCommand from './commands/cleanup.js';
 import doctorCommand from './commands/doctor.js';
+import installCommand from './commands/install.js';
 
 /**
  * Register all built-in commands
@@ -41,6 +42,7 @@ function registerBuiltinCommands(): void {
   registerCommand(statusCommand);
   registerCommand(cleanupCommand);
   registerCommand(doctorCommand);
+  registerCommand(installCommand);
 }
 
 /**

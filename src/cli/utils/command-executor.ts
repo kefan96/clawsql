@@ -64,38 +64,84 @@ export function logCommandHeader(command: string): void {
 
 /**
  * Docker/docker-compose progress patterns
- * Maps output patterns to user-friendly messages
+ * Maps output patterns to user-friendly messages with service names
  */
-const PROGRESS_PATTERNS: Array<{ pattern: RegExp; message: string }> = [
-  { pattern: /Pulling image|Pulling from|Pulling fs layer/i, message: 'Pulling images...' },
-  { pattern: /Downloading|Extracting/i, message: 'Downloading images...' },
-  { pattern: /Creating network/i, message: 'Creating network...' },
-  { pattern: /Creating volume/i, message: 'Creating volumes...' },
-  { pattern: /Building|Step \d+\/\d+/i, message: 'Building containers...' },
-  { pattern: /Creating .*Container/i, message: 'Creating containers...' },
-  { pattern: /Starting .*Container/i, message: 'Starting containers...' },
-  { pattern: /Network .* created/i, message: 'Network created' },
-  { pattern: /Volume .* created/i, message: 'Volume created' },
-  { pattern: /Container .* started/i, message: 'Container started' },
-  { pattern: /Container .* created/i, message: 'Container created' },
-  { pattern: /Removing container/i, message: 'Removing containers...' },
-  { pattern: /Removed container/i, message: 'Container removed' },
-  { pattern: /Stopping container/i, message: 'Stopping containers...' },
-  { pattern: /Stopped container/i, message: 'Container stopped' },
-  { pattern: /Removing network/i, message: 'Removing network...' },
-  { pattern: /Removed network/i, message: 'Network removed' },
-  { pattern: /Removing volume/i, message: 'Removing volumes...' },
-  { pattern: /Removed volume/i, message: 'Volume removed' },
-  { pattern: /Error|error|ERROR/i, message: 'Error detected' },
-  { pattern: /Warning|warning|WARN/i, message: 'Warning detected' },
+const PROGRESS_PATTERNS: Array<{ pattern: RegExp; message: string | ((match: RegExpMatchArray) => string) }> = [
+  // Image pulling - capture the actual image name
+  { pattern: /Trying to pull ([^\s]+)/i, message: (m) => `Pulling ${formatImageName(m[1])}...` },
+  { pattern: /Getting image source signatures/i, message: 'Verifying image signatures...' },
+  { pattern: /Copying blob/i, message: 'Downloading image layers...' },
+  { pattern: /Copying config/i, message: 'Writing image config...' },
+  { pattern: /Writing manifest to image destination/i, message: 'Image ready' },
+
+  // Container creation/start - capture the container/service name
+  { pattern: /podman run --name=(\S+)/i, message: (m) => `Starting ${m[1]}...` },
+  { pattern: /docker run --name (\S+)/i, message: (m) => `Starting ${m[1]}...` },
+  { pattern: /Creating (\S+)/i, message: (m) => `Creating ${m[1]}...` },
+  { pattern: /Starting (\S+)/i, message: (m) => `Starting ${m[1]}...` },
+
+  // Volume creation - capture volume name
+  { pattern: /podman volume create.*?(\S+)/i, message: (m) => `Creating volume ${cleanVolumeName(m[1])}...` },
+  { pattern: /docker volume create.*?(\S+)/i, message: (m) => `Creating volume ${cleanVolumeName(m[1])}...` },
+  { pattern: /Volume (\S+) created/i, message: (m) => `Volume ${cleanVolumeName(m[1])} created ✓` },
+
+  // Network creation
+  { pattern: /podman network create.*?(\S+)/i, message: (m) => `Creating network ${m[1]}...` },
+  { pattern: /docker network create.*?(\S+)/i, message: (m) => `Creating network ${m[1]}...` },
+  { pattern: /Network (\S+) created/i, message: (m) => `Network ${m[1]} created ✓` },
+
+  // Container status
+  { pattern: /Container (\S+) started/i, message: (m) => `${m[1]} started ✓` },
+  { pattern: /Container (\S+) created/i, message: (m) => `${m[1]} created ✓` },
+  { pattern: /exit code: 0$/i, message: 'Container ready ✓' },
+
+  // Container removal
+  { pattern: /Removing container (\S+)/i, message: (m) => `Removing ${m[1]}...` },
+  { pattern: /Removed container (\S+)/i, message: (m) => `${m[1]} removed ✓` },
+  { pattern: /Stopping container (\S+)/i, message: (m) => `Stopping ${m[1]}...` },
+  { pattern: /Stopped container (\S+)/i, message: (m) => `${m[1]} stopped ✓` },
+
+  // Network/volume removal
+  { pattern: /Removing network (\S+)/i, message: (m) => `Removing network ${m[1]}...` },
+  { pattern: /Removed network (\S+)/i, message: (m) => `Network ${m[1]} removed ✓` },
+  { pattern: /Removing volume (\S+)/i, message: (m) => `Removing volume ${m[1]}...` },
+  { pattern: /Removed volume (\S+)/i, message: (m) => `Volume ${m[1]} removed ✓` },
 ];
+
+/**
+ * Format image name for display (shorten long registry paths)
+ */
+function formatImageName(image: string): string {
+  // Remove registry prefix if it's a common one
+  const shortName = image
+    .replace(/^docker\.io\//, '')
+    .replace(/^registry\.access\.redhat\.com\//, '')
+    .replace(/^ghcr\.io\//, '');
+
+  // If still too long, truncate
+  if (shortName.length > 40) {
+    return shortName.substring(0, 40) + '...';
+  }
+  return shortName;
+}
+
+/**
+ * Clean volume name (remove docker_ prefix)
+ */
+function cleanVolumeName(name: string): string {
+  return name.replace(/^docker_/, '').replace(/-data$/, ' data');
+}
 
 /**
  * Parse output and extract progress message
  */
 function parseProgressMessage(output: string): string | null {
   for (const { pattern, message } of PROGRESS_PATTERNS) {
-    if (pattern.test(output)) {
+    const match = output.match(pattern);
+    if (match) {
+      if (typeof message === 'function') {
+        return message(match);
+      }
       return message;
     }
   }
