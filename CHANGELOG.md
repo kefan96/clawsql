@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-03-31
+
+### Fixed
+- **OpenClaw Gateway Readiness**: Increased timeout from 30s to 120s with clearer progress messaging during startup
+- **Natural Language AI**: Fixed "clawsql binary not found" error by using HTTP API instead of CLI binary in OpenClaw context
+- **Platform Status Commands**: `/status` and `/doctor` now show only platform-level info (use `/topology` or `/clusters` for MySQL details)
+
+### Changed
+- `/doctor` AI test now uses fast HTTP health check instead of slow AI ping query (~100ms vs 22s)
+- `isOpenClawAvailable()` optimized to check gateway health via HTTP first (faster detection)
+- Removed MySQL container/cluster details from `/status` output
+- Removed MySQL instance checks from `/doctor` output
+- `OPENCLAW_CONTEXT` now uses correct API endpoints at `/api/v1/...`
+
 ## [0.2.2] - 2026-03-30
 
 ### Fixed
@@ -70,6 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interactive CLI with REPL interface
 - REST API with OpenAPI documentation
 
+[0.2.3]: https://github.com/clawsql/clawsql/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/clawsql/clawsql/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/clawsql/clawsql/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/clawsql/clawsql/compare/v0.1.9...v0.2.0

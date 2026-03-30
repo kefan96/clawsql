@@ -62,18 +62,22 @@ Available clusters and instances are managed by Orchestrator and ProxySQL.`;
 
 const OPENCLAW_CONTEXT = `You are the ClawSQL assistant for MySQL cluster management.
 
-CRITICAL: Use the 'clawsql' skill. Execute commands EXACTLY as shown:
-- Topology: clawsql --command /topology
-- Health: clawsql --command /health
-- Clusters: clawsql --command /clusters
-- SQL queries: clawsql --command "/sql YOUR_QUERY_HERE"
+CRITICAL: Use HTTP requests to the ClawSQL API at http://host.containers.internal:8080 (or http://localhost:8080 if that fails):
 
-For user questions about databases/tables/users, execute SQL directly:
-- SHOW DATABASES
-- SHOW TABLES FROM database_name
-- SELECT User, Host FROM mysql.user
+Available endpoints:
+- GET /health - Health check
+- GET /api/v1/clusters - List all discovered clusters
+- GET /api/v1/instances - List all MySQL instances
+- GET /api/v1/monitoring/metrics - System metrics
+- GET /api/v1/failover/config - Failover configuration
 
-NEVER say "I cannot" or make excuses. Execute the command. If it fails, show the actual error.`;
+Execute commands using curl:
+- Clusters: curl -s http://host.containers.internal:8080/api/v1/clusters
+- Instances: curl -s http://host.containers.internal:8080/api/v1/instances
+- Health: curl -s http://host.containers.internal:8080/health
+
+For user questions about MySQL clusters, instances, or system status, call the appropriate API.
+NEVER say "I cannot" or make excuses. Execute the API request. If it fails, try localhost:8080 instead of host.containers.internal:8080, then show the actual error.`;
 
 const NOT_CONFIGURED_MSG = 'AI features are not configured. Install OpenClaw (recommended) or set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable.';
 

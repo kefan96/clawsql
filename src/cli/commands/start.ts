@@ -270,11 +270,13 @@ export const startCommand: Command = {
     // Wait for OpenClaw gateway to be ready (skip if using local)
     if (!useLocalOpenClaw) {
       console.log(`  ${chalk.cyan('OpenClaw gateway...')}`);
-      const openclawReady = await waitForOpenClaw(30);
+      console.log(formatter.info('  OpenClaw may take 1-2 minutes to initialize (AI model loading)'));
+      const openclawReady = await waitForOpenClaw(120);
 
       if (!openclawReady) {
-        console.log(`  ${chalk.yellow('OpenClaw gateway not ready (AI features limited)')}`);
-        console.log(formatter.info('Check logs: podman logs openclaw'));
+        console.log(`  ${chalk.yellow('OpenClaw gateway not ready after 2 minutes')}`);
+        console.log(formatter.info('  AI features may be limited. Check logs: podman logs openclaw'));
+        console.log(formatter.info('  Gateway will become available when ready - check with /status'));
       } else {
         console.log(`  ${chalk.green('OpenClaw gateway ready ✓')}`);
       }

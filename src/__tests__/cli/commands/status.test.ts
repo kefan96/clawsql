@@ -116,7 +116,7 @@ describe('statusCommand', () => {
     expect(output).toHaveProperty('runtime');
     expect(output).toHaveProperty('containers');
     expect(output).toHaveProperty('services');
-    expect(output).toHaveProperty('clusters');
+    // Note: clusters removed from status output - use /topology or /clusters instead
   });
 
   it('should detect docker runtime', async () => {
@@ -200,36 +200,6 @@ describe('statusCommand', () => {
     const output = JSON.parse(lastCall[0]);
     expect(output.services.proxysql.healthy).toBe(false);
     expect(output.services.proxysql.error).toBe('Connection refused');
-  });
-
-  it('should get cluster info', async () => {
-    mockContext.orchestrator.getClusters.mockResolvedValue(['cluster-1']);
-    mockContext.orchestrator.getTopology.mockResolvedValue({
-      name: 'test-cluster',
-      primary: { host: 'primary', port: 3306, state: 'online' },
-      replicas: [
-        { host: 'replica1', port: 3306, state: 'online' },
-      ],
-    });
-
-    await statusCommand.handler(['--json'], mockContext);
-
-    const lastCall = consoleSpy.mock.calls[consoleSpy.mock.calls.length - 1];
-    const output = JSON.parse(lastCall[0]);
-    expect(output.clusters).toHaveLength(1);
-    expect(output.clusters[0].name).toBe('test-cluster');
-    expect(output.clusters[0].replicas).toBe(1);
-    expect(output.clusters[0].primaryHealthy).toBe(true);
-  });
-
-  it('should handle cluster info errors', async () => {
-    mockContext.orchestrator.getClusters.mockRejectedValue(new Error('Orchestrator unavailable'));
-
-    await statusCommand.handler(['--json'], mockContext);
-
-    const lastCall = consoleSpy.mock.calls[consoleSpy.mock.calls.length - 1];
-    const output = JSON.parse(lastCall[0]);
-    expect(output.clusters).toEqual([]);
   });
 
   it('should handle service fetch failure', async () => {

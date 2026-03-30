@@ -66,7 +66,6 @@ export const statusCommand: Command = {
           error: openClawStatus.available && !openClawGatewayHealthy ? 'Gateway not responding' : undefined,
         },
       },
-      clusters: await getClusterInfo(ctx),
     };
 
     if (jsonOutput) {
@@ -113,7 +112,7 @@ export const statusCommand: Command = {
       console.log(theme.muted('  Install Docker or Podman to continue'));
     }
 
-    // Containers
+    // Containers - platform services only
     console.log(formatter.section('Containers'));
     if (containers.length === 0) {
       if (imageStatus.installed.length > 0) {
@@ -122,7 +121,11 @@ export const statusCommand: Command = {
         console.log(theme.muted('  No containers (images not installed)'));
       }
     } else {
-      for (const container of containers) {
+      // Filter to show only platform containers, not MySQL demo containers
+      const platformContainers = containers.filter(c =>
+        !c.name.startsWith('mysql-') && !c.name.includes('mysql-replica')
+      );
+      for (const container of platformContainers) {
         const statusColor = container.status === 'running' ? theme.success : theme.error;
         console.log(`  ${statusColor(indicators.success)} ${container.name.padEnd(20)} ${statusColor(container.status)}`);
       }
@@ -162,14 +165,9 @@ export const statusCommand: Command = {
       console.log(`  ${statusIcon} ${label.padEnd(20)} ${statusText}`);
     }
 
-    // Clusters
-    if (status.clusters.length > 0) {
-      console.log(formatter.section('MySQL Clusters'));
-      for (const cluster of status.clusters) {
-        const primaryStatus = cluster.primaryHealthy ? theme.success(indicators.success) : theme.error(indicators.error);
-        console.log(`  ${primaryStatus} ${cluster.name.padEnd(20)} ${cluster.replicas} replica(s)`);
-      }
-    }
+    // Add hint for cluster/node details
+    console.log();
+    console.log(theme.muted('  For MySQL cluster details, use: /topology or /clusters'));
 
     console.log();
   },
@@ -282,31 +280,6 @@ async function checkProxySQL(ctx: CLIContext): Promise<ServiceStatus> {
     return { healthy: true };
   } catch (error) {
     return { healthy: false, error: error instanceof Error ? error.message : 'unreachable' };
-  }
-}
-
-/**
- * Get cluster information
- */
-async function getClusterInfo(ctx: CLIContext): Promise<Array<{ name: string; replicas: number; primaryHealthy: boolean }>> {
-  try {
-    const clusters = await ctx.orchestrator.getClusters();
-    const result = [];
-
-    for (const clusterName of clusters) {
-      const topology = await ctx.orchestrator.getTopology(clusterName);
-      if (topology) {
-        result.push({
-          name: topology.name || clusterName,
-          replicas: topology.replicas.length,
-          primaryHealthy: topology.primary?.state === 'online',
-        });
-      }
-    }
-
-    return result;
-  } catch {
-    return [];
   }
 }
 

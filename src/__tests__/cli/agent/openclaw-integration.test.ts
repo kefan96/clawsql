@@ -237,7 +237,22 @@ describe('OpenClaw Integration', () => {
   });
 
   describe('isOpenClawAvailable', () => {
-    it('should return true when Docker OpenClaw is available', async () => {
+    it('should return true when gateway is healthy', async () => {
+      // New behavior: checks gateway health first
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+
+      const result = await isOpenClawAvailable();
+
+      expect(result).toBe(true);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:18789/health',
+        expect.any(Object)
+      );
+    });
+
+    it('should return true when Docker OpenClaw is available (fallback)', async () => {
+      // Gateway unhealthy, but Docker container running
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: false });
       mockSpawn.mockReturnValue(createMockProcess('openclaw\n', '', 0));
 
       const result = await isOpenClawAvailable();
@@ -476,7 +491,7 @@ describe('OpenClaw Integration', () => {
 
     describe('isAvailable', () => {
       it('should return availability status', async () => {
-        mockSpawn.mockReturnValue(createMockProcess('openclaw\n', '', 0));
+        (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
 
         const agent = createOpenClawAgent(mockContext);
         const available = await agent.isAvailable();
@@ -485,14 +500,15 @@ describe('OpenClaw Integration', () => {
       });
 
       it('should cache availability status', async () => {
-        mockSpawn.mockReturnValue(createMockProcess('openclaw\n', '', 0));
+        (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
 
         const agent = createOpenClawAgent(mockContext);
         await agent.isAvailable();
         await agent.isAvailable();
 
-        // Spawn should only be called once for detection
-        expect(mockSpawn.mock.calls.length).toBeGreaterThanOrEqual(1);
+        // Fetch should be called (gateway health check)
+        // Due to caching, subsequent calls should use cached value
+        expect(global.fetch).toHaveBeenCalled();
       });
     });
 
@@ -507,13 +523,9 @@ describe('OpenClaw Integration', () => {
       });
 
       it('should send message when Docker OpenClaw is available', async () => {
-        // The implementation calls isDockerOpenClawAvailable multiple times:
-        // 1. agent.isAvailable() -> isOpenClawAvailable() -> isDockerOpenClawAvailable()
-        // 2. sendToOpenClaw() -> getSpawnConfig() -> isDockerOpenClawAvailable()
-        // Each call to execCommand uses spawn, so we need multiple mock returns
-
-        // Mock multiple Docker checks to return true (container running)
-        mockSpawn.mockReturnValueOnce(createMockProcess('openclaw\n', '', 0));
+        // Gateway health check returns true (new optimized path)
+        (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+        // Docker check for spawn config
         mockSpawn.mockReturnValueOnce(createMockProcess('openclaw\n', '', 0));
         // Mock the agent call
         mockSpawn.mockReturnValueOnce(createMockProcess('AI response\n', '', 0));
@@ -527,7 +539,9 @@ describe('OpenClaw Integration', () => {
 
     describe('healthCheckCron', () => {
       it('should schedule health check cron', async () => {
-        // Mock Docker check
+        // Gateway health check returns true
+        (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+        // Docker check
         mockSpawn.mockReturnValueOnce(createMockProcess('openclaw\n', '', 0));
         // Mock cron call
         mockSpawn.mockReturnValueOnce(createMockProcess('Scheduled\n', '', 0));

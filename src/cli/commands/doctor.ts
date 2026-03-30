@@ -9,7 +9,7 @@ import { theme, indicators } from '../ui/components.js';
 import { spawn } from 'child_process';
 import {
   getDetailedOpenClawStatus,
-  testOpenClawConnection,
+  CONFIG,
 } from '../agent/openclaw-integration.js';
 import {
   detectRuntime,
@@ -68,9 +68,6 @@ async function runDiagnostics(ctx: CLIContext, results: DiagnosticResult[]): Pro
   ]);
 
   checkConfiguration(ctx, results);
-  await checkMySQLInstances(ctx, results);
-  await checkReplicationTopology(ctx, results);
-  await checkProxySQLSync(ctx, results);
 }
 
 // ============================================================================
@@ -186,7 +183,7 @@ async function checkClawSQLAPI(ctx: CLIContext, results: DiagnosticResult[]): Pr
 }
 
 async function checkOrchestrator(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
-  // Health check first
+  // Health check
   try {
     const isHealthy = await ctx.orchestrator.healthCheck();
     if (!isHealthy) {
@@ -198,6 +195,8 @@ async function checkOrchestrator(ctx: CLIContext, results: DiagnosticResult[]): 
       });
       return;
     }
+
+    results.push({ name: 'Orchestrator', severity: 'ok', message: `Running at ${ctx.settings.orchestrator.url}` });
   } catch {
     results.push({
       name: 'Orchestrator',
@@ -205,32 +204,6 @@ async function checkOrchestrator(ctx: CLIContext, results: DiagnosticResult[]): 
       message: 'Cannot connect to Orchestrator',
       detail: `Expected at ${ctx.settings.orchestrator.url}`,
       fix: 'Ensure container is running: docker ps | grep orchestrator',
-    });
-    return;
-  }
-
-  // Orchestrator is healthy, add ok result
-  results.push({ name: 'Orchestrator', severity: 'ok', message: `Running at ${ctx.settings.orchestrator.url}` });
-
-  // Check for discovered clusters (separate try-catch to avoid duplicate error)
-  try {
-    const clusters = await ctx.orchestrator.getClusters();
-    if (clusters.length === 0) {
-      results.push({
-        name: 'MySQL Topology',
-        severity: 'warning',
-        message: 'No MySQL instances discovered in Orchestrator',
-        fix: 'Register instances with: /instances register <host>',
-      });
-    } else {
-      results.push({ name: 'MySQL Topology', severity: 'ok', message: `${clusters.length} cluster(s) discovered` });
-    }
-  } catch {
-    results.push({
-      name: 'MySQL Topology',
-      severity: 'warning',
-      message: 'Could not query Orchestrator for clusters',
-      fix: 'Check Orchestrator logs: docker logs orchestrator',
     });
   }
 }
@@ -374,16 +347,31 @@ async function checkOpenClaw(_ctx: CLIContext, results: DiagnosticResult[]): Pro
       });
     }
 
-    // Quick AI test
-    const testResult = await testOpenClawConnection('ping');
-    if (testResult.success) {
-      results.push({ name: 'OpenClaw AI Test', severity: 'ok', message: `AI responding (${testResult.latencyMs}ms)` });
-    } else {
+    // Quick AI test - optional, can be slow
+    // Use a simple gateway health check instead of full AI query
+    const httpUrl = CONFIG.gatewayUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+    try {
+      const start = Date.now();
+      const response = await fetch(`${httpUrl}/health`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      const latency = Date.now() - start;
+
+      if (response.ok) {
+        results.push({ name: 'OpenClaw AI Test', severity: 'ok', message: `Gateway healthy (${latency}ms)` });
+      } else {
+        results.push({
+          name: 'OpenClaw AI Test',
+          severity: 'warning',
+          message: `Gateway returned ${response.status}`,
+          fix: 'Check logs: docker logs openclaw',
+        });
+      }
+    } catch {
       results.push({
         name: 'OpenClaw AI Test',
         severity: 'warning',
-        message: 'AI test failed',
-        detail: testResult.error,
+        message: 'Gateway health check failed',
         fix: 'Check logs: docker logs openclaw',
       });
     }
@@ -428,197 +416,6 @@ function checkConfiguration(ctx: CLIContext, results: DiagnosticResult[]): void 
 
   if (!ctx.settings.metadataDb.host) {
     results.push({ name: 'Metadata Database', severity: 'ok', message: 'Using auto-provisioned container' });
-  }
-}
-
-async function checkMySQLInstances(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
-  try {
-    const clusters = await ctx.orchestrator.getClusters();
-
-    for (const clusterName of clusters) {
-      const topology = await ctx.orchestrator.getTopology(clusterName);
-      if (!topology) continue;
-
-      const label = topology.name || clusterName;
-
-      // Check primary
-      if (topology.primary) {
-        if (topology.primary.state !== 'online') {
-          results.push({
-            name: `Primary [${label}]`,
-            severity: 'error',
-            message: `${topology.primary.host}:${topology.primary.port} is ${topology.primary.state}`,
-            fix: 'Check MySQL instance status',
-          });
-        } else {
-          results.push({ name: `Primary [${label}]`, severity: 'ok', message: `${topology.primary.host}:${topology.primary.port} is online` });
-        }
-      } else {
-        results.push({
-          name: `Primary [${label}]`,
-          severity: 'error',
-          message: 'No primary found',
-          fix: 'Check replication or promote: /failover switchover',
-        });
-      }
-
-      // Check replicas
-      for (const replica of topology.replicas) {
-        if (replica.state !== 'online') {
-          results.push({
-            name: `Replica [${label}]`,
-            severity: 'warning',
-            message: `${replica.host}:${replica.port} is ${replica.state}`,
-            fix: 'Check replica status',
-          });
-        } else if (replica.replicationLag !== undefined && replica.replicationLag > 60) {
-          results.push({
-            name: `Replica Lag [${label}]`,
-            severity: 'warning',
-            message: `${replica.host}:${replica.port} lag: ${replica.replicationLag}s`,
-            fix: 'Check replica performance',
-          });
-        }
-      }
-    }
-  } catch {
-    // Handled in Orchestrator check
-  }
-}
-
-async function checkReplicationTopology(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
-  try {
-    const analysis = await ctx.orchestrator.getReplicationAnalysis();
-
-    for (const issue of analysis) {
-      const analysisType = issue.Analysis as string;
-      if (analysisType && !analysisType.includes('NoProblem')) {
-        const host = (issue.Key as Record<string, string>)?.Hostname;
-        results.push({
-          name: 'Replication Analysis',
-          severity: 'warning',
-          message: `${analysisType}: ${host || 'unknown'}`,
-          detail: issue.Description as string,
-          fix: 'Review Orchestrator UI: http://localhost:3000',
-        });
-      }
-    }
-  } catch {
-    // Orchestrator may not be available
-  }
-}
-
-async function checkProxySQLSync(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
-  try {
-    const clusters = await ctx.orchestrator.getClusters();
-    if (clusters.length === 0) return;
-
-    // Get ProxySQL data
-    let servers: Array<{ hostgroupId: number; hostname: string; port: number; status: string }> = [];
-    let hostgroups: Array<{ writerHostgroup: number; readerHostgroup: number }> = [];
-
-    try {
-      await ctx.proxysql.connect();
-      servers = await ctx.proxysql.getServers() as typeof servers;
-      hostgroups = await ctx.proxysql.getReplicationHostgroups();
-      await ctx.proxysql.close();
-    } catch {
-      return;
-    }
-
-    // Build expected instances from Orchestrator
-    const expected = new Map<string, { host: string; port: number; role: string }>();
-
-    for (const clusterName of clusters) {
-      const topology = await ctx.orchestrator.getTopology(clusterName);
-      if (!topology) continue;
-
-      if (topology.primary) {
-        expected.set(`${topology.primary.host}:${topology.primary.port}`, {
-          host: topology.primary.host,
-          port: topology.primary.port,
-          role: 'primary',
-        });
-      }
-
-      for (const replica of topology.replicas) {
-        expected.set(`${replica.host}:${replica.port}`, {
-          host: replica.host,
-          port: replica.port,
-          role: 'replica',
-        });
-      }
-    }
-
-    // Build actual from ProxySQL
-    const actual = new Map<string, { hostgroup: number }>();
-    for (const s of servers) {
-      actual.set(`${s.hostname}:${s.port}`, { hostgroup: s.hostgroupId });
-    }
-
-    const writerHG = hostgroups.length > 0 ? Number(hostgroups[0].writerHostgroup) : 10;
-    const readerHG = hostgroups.length > 0 ? Number(hostgroups[0].readerHostgroup) : 20;
-
-    // Check for issues
-    const missing: string[] = [];
-    const wrongHG: string[] = [];
-    const orphans: string[] = [];
-
-    for (const [key, inst] of expected) {
-      const proxy = actual.get(key);
-      if (!proxy) {
-        missing.push(`${key} (${inst.role})`);
-      } else {
-        const expectedHG = inst.role === 'primary' ? writerHG : readerHG;
-        if (!isNaN(proxy.hostgroup) && !isNaN(expectedHG) && proxy.hostgroup !== expectedHG) {
-          wrongHG.push(`${key} in hg:${proxy.hostgroup}, expected hg:${expectedHG}`);
-        }
-      }
-    }
-
-    for (const [key, inst] of actual) {
-      if (!expected.has(key)) {
-        orphans.push(`${key} (hg:${inst.hostgroup})`);
-      }
-    }
-
-    // Report
-    if (missing.length > 0) {
-      results.push({
-        name: 'ProxySQL Sync',
-        severity: 'warning',
-        message: `${missing.length} instance(s) missing in ProxySQL`,
-        detail: missing.slice(0, 5).join(', '),
-        fix: 'Sync with: /clusters sync',
-        fixCommand: '/clusters sync',
-      });
-    }
-
-    if (wrongHG.length > 0) {
-      results.push({
-        name: 'ProxySQL Hostgroups',
-        severity: 'warning',
-        message: `${wrongHG.length} instance(s) in wrong hostgroup`,
-        detail: wrongHG.slice(0, 3).join('; '),
-        fix: 'Re-sync with: /clusters sync',
-      });
-    }
-
-    if (orphans.length > 0) {
-      results.push({
-        name: 'ProxySQL Orphans',
-        severity: 'warning',
-        message: `${orphans.length} orphan instance(s) in ProxySQL`,
-        detail: orphans.slice(0, 3).join(', '),
-        fix: 'Remove orphans or register in Orchestrator',
-      });
-    }
-
-    if (missing.length === 0 && wrongHG.length === 0 && orphans.length === 0 && expected.size > 0) {
-      results.push({ name: 'ProxySQL Sync', severity: 'ok', message: `All ${expected.size} instances synced` });
-    }
-  } catch {
-    // Already reported in other checks
   }
 }
 
@@ -690,6 +487,10 @@ function printSummary(results: DiagnosticResult[]): void {
   } else {
     console.log(theme.warning(`Found ${errors} error(s) and ${warnings} warning(s)`));
   }
+
+  // Add hint for MySQL cluster details
+  console.log();
+  console.log(theme.muted('  For MySQL cluster details, use: /topology or /clusters'));
 }
 
 // ============================================================================

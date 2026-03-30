@@ -16,7 +16,7 @@ import { detectRuntime } from '../utils/docker-prereq.js';
 // Configuration
 // ============================================================================
 
-const CONFIG = {
+export const CONFIG = {
   gatewayUrl: process.env.OPENCLAW_GATEWAY_URL || 'ws://localhost:18789',
   gatewayToken: process.env.OPENCLAW_GATEWAY_TOKEN || 'clawsql-openclaw-token',
   sessionId: 'clawsql-session',
@@ -292,9 +292,15 @@ export async function isLocalOpenClawAvailable(): Promise<boolean> {
 
 /**
  * Check if any OpenClaw is available
+ * Optimized: checks gateway health first (fast HTTP), then container status
  */
 export async function isOpenClawAvailable(): Promise<boolean> {
-  return (await isDockerOpenClawAvailable()) || (await isLocalOpenClawAvailable());
+  // Fast check: gateway health endpoint (no subprocess)
+  if (await isGatewayHealthy()) {
+    return true;
+  }
+  // Fallback: check if container is running (slower, spawns subprocess)
+  return isDockerOpenClawAvailable();
 }
 
 /**
