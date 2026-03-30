@@ -19,12 +19,27 @@ OpenClaw provides an AI gateway that enables natural language interaction with C
 OpenClaw starts automatically as a Docker container when you run `/start`:
 
 ```bash
-clawsql> /start
+clawsql> /start --demo    # Start with demo MySQL cluster
+# or
+clawsql> /start           # Start platform only (bring your own MySQL)
 ```
 
 The gateway will be available at:
 - **Control UI**: http://localhost:18790
 - **Gateway WebSocket**: ws://localhost:18789
+
+### AI Provider Auto-Detection
+
+ClawSQL automatically detects AI provider configuration from environment variables:
+
+| Environment Variable | Provider |
+|---------------------|----------|
+| `ANTHROPIC_API_KEY` | Anthropic Claude |
+| `OPENAI_API_KEY` | OpenAI GPT |
+| `XAI_API_KEY` | xAI Grok |
+| `DASHSCOPE_API_KEY` | Alibaba Qwen |
+
+Set any of these before starting ClawSQL and the AI will use the configured provider automatically.
 
 ### Using Local OpenClaw
 
