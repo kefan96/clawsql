@@ -21,7 +21,14 @@ export {
   getOpenClawStatus,
   ensureOpenClawRunning,
   sendToOpenClaw,
+  sendToOpenClawStream,
   scheduleCron,
   sendNotification,
   writeToMemory,
+  getModelProviderInfo,
+  configureModelProvider,
+  testOpenClawConnection,
+  getDetailedOpenClawStatus,
+  SUPPORTED_PROVIDERS,
 } from './openclaw-integration.js';
+export type { ModelProviderInfo, OpenClawOptions, OpenClawStatus } from './openclaw-integration.js';

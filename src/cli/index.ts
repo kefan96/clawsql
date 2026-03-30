@@ -23,6 +23,7 @@ import statusCommand from './commands/status.js';
 import cleanupCommand from './commands/cleanup.js';
 import doctorCommand from './commands/doctor.js';
 import installCommand from './commands/install.js';
+import openclawCommand from './commands/openclaw.js';
 
 /**
  * Register all built-in commands
@@ -43,6 +44,7 @@ function registerBuiltinCommands(): void {
   registerCommand(cleanupCommand);
   registerCommand(doctorCommand);
   registerCommand(installCommand);
+  registerCommand(openclawCommand);
 }
 
 /**

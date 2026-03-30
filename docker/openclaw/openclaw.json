@@ -5,6 +5,9 @@
     "auth": {
       "mode": "token",
       "token": "clawsql-openclaw-token"
+    },
+    "controlUi": {
+      "dangerouslyAllowHostHeaderOriginFallback": true
     }
   }
 }

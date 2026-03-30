@@ -18,23 +18,25 @@ services:
     image: ghcr.io/openclaw/openclaw:latest
     container_name: openclaw
     hostname: openclaw
-    ports:
-      - "18789:18789"  # Gateway WebSocket port
-      - "18790:18790"  # Control UI port
+    network_mode: host
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
     environment:
       - OPENCLAW_GATEWAY_PORT=18789
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-clawsql-openclaw-token}
-      - OPENCLAW_GATEWAY_BIND=lan
-      - OPENCLAW_STATE_DIR=/data/.openclaw
+      - OPENCLAW_STATE_DIR=/data/state
       - OPENCLAW_WORKSPACE_DIR=/data/workspace
-      # Optional: configure AI provider (defaults to bundled qwen)
-      - OPENCLAW_MODEL_PROVIDER=${OPENCLAW_MODEL_PROVIDER:-}
-      - OPENCLAW_MODEL_API_KEY=${OPENCLAW_MODEL_API_KEY:-}
+      # Auto-injected AI configuration from host environment
+      # For custom Anthropic-compatible endpoints (e.g., DashScope, OpenRouter)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+      # OpenAI configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-}
     volumes:
       - openclaw-data:/data
-      - ./docker/openclaw/openclaw.json:/data/.openclaw/openclaw.json:ro
-    networks:
-      - clawsql-network
+      - ./docker/openclaw/entrypoint.sh:/entrypoint.sh:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:18789/health || exit 1"]
@@ -64,7 +66,7 @@ services:
       - PROXYSQL_ADMIN_PORT=6032
       - PROMETHEUS_URL=http://prometheus:9090
       # OpenClaw Gateway for AI operations
-      - OPENCLAW_GATEWAY_URL=ws://openclaw:18789
+      - OPENCLAW_GATEWAY_URL=ws://host.containers.internal:18789
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-clawsql-openclaw-token}
       # Metadata Database (shared with Orchestrator)
       - METADATA_DB_HOST=${METADATA_DB_HOST:-metadata-mysql}
@@ -107,13 +109,18 @@ services:
   # Uses shared metadata MySQL database
   # =============================================================================
   orchestrator:
-    image: docker.io/openarkcode/orchestrator:latest
+    image: docker.io/percona/percona-orchestrator:latest
     container_name: orchestrator
     hostname: orchestrator
     ports:
       - "3000:3000"
     volumes:
-      - ./docker/orchestrator/orchestrator.conf.json:/etc/orchestrator.conf.json
+      - ./docker/orchestrator/orchestrator.conf.json:/etc/orchestrator/orchestrator.conf.json
+      - orchestrator-data:/var/lib/orchestrator
+    depends_on:
+      metadata-mysql:
+        condition: service_healthy
+        required: false
     networks:
       - clawsql-network
     restart: unless-stopped
@@ -254,6 +261,7 @@ networks:
 # Volumes
 # =============================================================================
 volumes:
+  orchestrator-data:
   metadata-mysql-data:
   proxysql-data:
   prometheus-data:

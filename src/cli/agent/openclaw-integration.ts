@@ -10,18 +10,30 @@ import { CLIContext } from '../registry.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { detectRuntime } from '../utils/docker-prereq.js';
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
-const DEFAULT_GATEWAY_URL = 'ws://localhost:18789';
-const DEFAULT_GATEWAY_TOKEN = 'clawsql-openclaw-token';
-const SESSION_ID = 'clawsql-session';
-const DEFAULT_TIMEOUT = 120000;
+const CONFIG = {
+  gatewayUrl: process.env.OPENCLAW_GATEWAY_URL || 'ws://localhost:18789',
+  gatewayToken: process.env.OPENCLAW_GATEWAY_TOKEN || 'clawsql-openclaw-token',
+  sessionId: 'clawsql-session',
+  defaultTimeout: 120000,
+  healthCheckTimeout: 5000,
+  containerName: 'openclaw',
+};
 
-const getGatewayUrl = () => process.env.OPENCLAW_GATEWAY_URL || DEFAULT_GATEWAY_URL;
-const getGatewayToken = () => process.env.OPENCLAW_GATEWAY_TOKEN || DEFAULT_GATEWAY_TOKEN;
+// Cached runtime detection
+let cachedRuntime: 'docker' | 'podman' | null | undefined;
+
+async function getContainerRuntime(): Promise<'docker' | 'podman' | null> {
+  if (cachedRuntime === undefined) {
+    cachedRuntime = await detectRuntime();
+  }
+  return cachedRuntime;
+}
 
 // ============================================================================
 // Types
@@ -31,6 +43,7 @@ export interface OpenClawOptions {
   gatewayUrl?: string;
   gatewayToken?: string;
   timeout?: number;
+  signal?: AbortSignal;
 }
 
 export interface OpenClawStatus {
@@ -39,15 +52,27 @@ export interface OpenClawStatus {
   isDocker: boolean;
 }
 
-// ============================================================================
-// Process Execution Utility
-// ============================================================================
+export interface ModelProviderInfo {
+  provider: string | null;
+  model: string | null;
+  configured: boolean;
+}
 
 interface ExecResult {
   success: boolean;
   stdout: string;
   stderr: string;
 }
+
+interface SpawnConfig {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+// ============================================================================
+// Process Execution Utilities
+// ============================================================================
 
 /**
  * Execute a command and return the result
@@ -59,7 +84,7 @@ function execCommand(
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
     const proc = spawn(command, args, {
-      timeout: options?.timeout || 30000,
+      timeout: options?.timeout ?? 30000,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: options?.env ? { ...process.env, ...options.env } : process.env,
     });
@@ -81,22 +106,134 @@ function execCommand(
 }
 
 /**
- * Execute openclaw CLI with gateway configuration
+ * Get spawn configuration for OpenClaw CLI execution
+ * Automatically uses container exec when OpenClaw is running in Docker/Podman
  */
-async function execOpenClaw(
-  args: string[],
-  options?: { timeout?: number; gatewayUrl?: string; gatewayToken?: string }
-): Promise<ExecResult> {
-  const gatewayUrl = options?.gatewayUrl || getGatewayUrl();
-  const gatewayToken = options?.gatewayToken || getGatewayToken();
+async function getSpawnConfig(args: string[]): Promise<SpawnConfig> {
+  const isDocker = await isDockerOpenClawAvailable();
+  const runtime = isDocker ? await getContainerRuntime() : null;
 
-  const env: Record<string, string> = {};
-  if (gatewayUrl !== DEFAULT_GATEWAY_URL) {
-    env.OPENCLAW_GATEWAY_URL = gatewayUrl;
+  // Environment variables to pass to OpenClaw
+  // Include all AI-related env vars for seamless integration
+  const env: Record<string, string> = {
+    OPENCLAW_GATEWAY_URL: CONFIG.gatewayUrl,
+    OPENCLAW_GATEWAY_TOKEN: CONFIG.gatewayToken,
+    // Anthropic/Claude configuration
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+    ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? '',
+    ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? '',
+    // OpenAI configuration
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL ?? '',
+    OPENAI_MODEL: process.env.OPENAI_MODEL ?? '',
+  };
+
+  if (runtime) {
+    // Execute inside container - pass env vars via -e flags
+    return {
+      command: runtime,
+      args: [
+        'exec',
+        '-e', 'OPENCLAW_GATEWAY_URL',
+        '-e', 'OPENCLAW_GATEWAY_TOKEN',
+        '-e', 'ANTHROPIC_API_KEY',
+        '-e', 'ANTHROPIC_BASE_URL',
+        '-e', 'ANTHROPIC_MODEL',
+        '-e', 'OPENAI_API_KEY',
+        '-e', 'OPENAI_BASE_URL',
+        '-e', 'OPENAI_MODEL',
+        CONFIG.containerName,
+        'openclaw',
+        ...args,
+      ],
+      env,
+    };
   }
-  env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
 
-  return execCommand('openclaw', args, { timeout: options?.timeout, env });
+  // Execute local CLI
+  return {
+    command: 'openclaw',
+    args,
+    env,
+  };
+}
+
+/**
+ * Spawn OpenClaw process with proper configuration
+ * Filters out internal log messages from stdout
+ */
+function spawnOpenClaw(
+  args: string[],
+  options?: OpenClawOptions & { onChunk?: (chunk: string) => void }
+): Promise<string> {
+  return new Promise(async (resolve, reject) => {
+    const spawnConfig = await getSpawnConfig(args);
+    const timeout = options?.timeout ?? CONFIG.defaultTimeout;
+
+    const proc = spawn(spawnConfig.command, spawnConfig.args, {
+      timeout,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: spawnConfig.env,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    /**
+     * Filter out OpenClaw internal log lines from output
+     * Log lines start with [bracket] pattern like [agents/...] or [xai-auth]
+     */
+    const filterLogLines = (text: string): string => {
+      return text.split('\n')
+        .filter(line => !line.trim().startsWith('['))
+        .join('\n');
+    };
+
+    proc.stdout?.on('data', (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      // Filter log lines when streaming to user
+      const filtered = filterLogLines(chunk);
+      if (filtered) {
+        options?.onChunk?.(filtered);
+      }
+    });
+
+    proc.stderr?.on('data', (data) => { stderr += data; });
+
+    // Abort signal handling
+    const abortHandler = () => {
+      proc.kill('SIGKILL');
+      reject(new DOMException('The operation was aborted', 'AbortError'));
+    };
+
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        proc.kill('SIGKILL');
+        reject(new DOMException('The operation was aborted', 'AbortError'));
+        return;
+      }
+      options.signal.addEventListener('abort', abortHandler);
+    }
+
+    proc.on('close', (code) => {
+      options?.signal?.removeEventListener('abort', abortHandler);
+
+      if (code === 0) {
+        // Filter log lines from final output
+        resolve(filterLogLines(stdout).trim());
+      } else if (code === null) {
+        reject(new DOMException('The operation was aborted', 'AbortError'));
+      } else {
+        reject(new Error(`OpenClaw failed (exit ${code}): ${stderr || stdout}`));
+      }
+    });
+
+    proc.on('error', (err) => {
+      options?.signal?.removeEventListener('abort', abortHandler);
+      reject(new Error(`Failed to spawn openclaw: ${err.message}`));
+    });
+  });
 }
 
 // ============================================================================
@@ -104,14 +241,20 @@ async function execOpenClaw(
 // ============================================================================
 
 /**
- * Check if OpenClaw Docker container is running
+ * Check if OpenClaw container is running
  */
 export async function isDockerOpenClawAvailable(): Promise<boolean> {
-  const result = await execCommand('docker', [
-    'ps', '--filter', 'name=openclaw', '--filter', 'status=running',
-    '--format', '{{.Names}}'
+  const runtime = await getContainerRuntime();
+  if (!runtime) return false;
+
+  const result = await execCommand(runtime, [
+    'ps',
+    '--filter', `name=${CONFIG.containerName}`,
+    '--filter', 'status=running',
+    '--format', '{{.Names}}',
   ]);
-  return result.success && result.stdout.trim() === 'openclaw';
+
+  return result.success && result.stdout.trim() === CONFIG.containerName;
 }
 
 /**
@@ -119,9 +262,9 @@ export async function isDockerOpenClawAvailable(): Promise<boolean> {
  */
 export async function isGatewayHealthy(): Promise<boolean> {
   try {
-    const httpUrl = getGatewayUrl().replace('ws://', 'http://').replace('wss://', 'https://');
+    const httpUrl = CONFIG.gatewayUrl.replace('ws://', 'http://').replace('wss://', 'https://');
     const response = await fetch(`${httpUrl}/health`, {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(CONFIG.healthCheckTimeout),
     });
     return response.ok;
   } catch {
@@ -130,24 +273,14 @@ export async function isGatewayHealthy(): Promise<boolean> {
 }
 
 /**
- * Check if local OpenClaw CLI gateway is running (not Docker)
+ * Check if local OpenClaw CLI is running (not in container)
  */
 export async function isLocalOpenClawAvailable(): Promise<boolean> {
-  // Docker container takes precedence
-  if (await isDockerOpenClawAvailable()) {
-    return false;
-  }
+  if (await isDockerOpenClawAvailable()) return false;
+  if (!(await isGatewayHealthy())) return false;
 
-  // Gateway must be reachable
-  if (!(await isGatewayHealthy())) {
-    return false;
-  }
-
-  // Verify via CLI status
-  const result = await execCommand('openclaw', ['status', '--json'], { timeout: 5000 });
-  if (!result.success) {
-    return false;
-  }
+  const result = await execCommand('openclaw', ['status', '--json'], { timeout: CONFIG.healthCheckTimeout });
+  if (!result.success) return false;
 
   try {
     const status = JSON.parse(result.stdout);
@@ -158,14 +291,14 @@ export async function isLocalOpenClawAvailable(): Promise<boolean> {
 }
 
 /**
- * Check if any OpenClaw gateway is available (Docker or local)
+ * Check if any OpenClaw is available
  */
 export async function isOpenClawAvailable(): Promise<boolean> {
   return (await isDockerOpenClawAvailable()) || (await isLocalOpenClawAvailable());
 }
 
 /**
- * Get detailed OpenClaw status
+ * Get OpenClaw status summary
  */
 export async function getOpenClawStatus(): Promise<OpenClawStatus> {
   const [isDocker, isLocal] = await Promise.all([
@@ -173,11 +306,7 @@ export async function getOpenClawStatus(): Promise<OpenClawStatus> {
     isLocalOpenClawAvailable(),
   ]);
 
-  return {
-    available: isDocker || isLocal,
-    isDocker,
-    isLocal,
-  };
+  return { available: isDocker || isLocal, isDocker, isLocal };
 }
 
 // ============================================================================
@@ -185,147 +314,37 @@ export async function getOpenClawStatus(): Promise<OpenClawStatus> {
 // ============================================================================
 
 /**
- * Send a message to OpenClaw agent
+ * Build agent CLI arguments
  */
-export async function sendToOpenClaw(
-  message: string,
-  options?: OpenClawOptions & { signal?: AbortSignal }
-): Promise<string> {
-  const args = [
+function buildAgentArgs(message: string): string[] {
+  return [
     'agent',
-    '--session-id', SESSION_ID,
+    '--local',
+    '--session-id', CONFIG.sessionId,
     '--message', message,
     '--thinking', 'minimal',
   ];
-
-  const timeout = options?.timeout || DEFAULT_TIMEOUT;
-  const gatewayUrl = options?.gatewayUrl || getGatewayUrl();
-  const gatewayToken = options?.gatewayToken || getGatewayToken();
-
-  return new Promise((resolve, reject) => {
-    const proc = spawn('openclaw', args, {
-      timeout,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        OPENCLAW_GATEWAY_URL: gatewayUrl,
-        OPENCLAW_GATEWAY_TOKEN: gatewayToken,
-      } as Record<string, string>,
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout?.on('data', (data) => { stdout += data; });
-    proc.stderr?.on('data', (data) => { stderr += data; });
-
-    // Handle abort signal
-    const abortHandler = () => {
-      proc.kill('SIGKILL');
-      reject(new DOMException('The operation was aborted', 'AbortError'));
-    };
-
-    if (options?.signal) {
-      if (options.signal.aborted) {
-        proc.kill('SIGKILL');
-        reject(new DOMException('The operation was aborted', 'AbortError'));
-        return;
-      }
-      options.signal.addEventListener('abort', abortHandler);
-    }
-
-    proc.on('close', (code) => {
-      options?.signal?.removeEventListener('abort', abortHandler);
-
-      if (code === 0) {
-        resolve(stdout.trim());
-      } else if (code === null) {
-        reject(new DOMException('The operation was aborted', 'AbortError'));
-      } else {
-        reject(new Error(`OpenClaw agent failed: ${stderr || stdout}`));
-      }
-    });
-
-    proc.on('error', (err) => {
-      options?.signal?.removeEventListener('abort', abortHandler);
-      reject(new Error(`Failed to run openclaw: ${err.message}`));
-    });
-  });
 }
 
 /**
- * Send a message to OpenClaw with streaming output
+ * Send message to OpenClaw agent
+ */
+export async function sendToOpenClaw(
+  message: string,
+  options?: OpenClawOptions
+): Promise<string> {
+  return spawnOpenClaw(buildAgentArgs(message), options);
+}
+
+/**
+ * Send message to OpenClaw with streaming output
  */
 export async function sendToOpenClawStream(
   message: string,
   onChunk: (chunk: string) => void,
-  options?: OpenClawOptions & { signal?: AbortSignal }
+  options?: OpenClawOptions
 ): Promise<string> {
-  const args = [
-    'agent',
-    '--session-id', SESSION_ID,
-    '--message', message,
-    '--thinking', 'minimal',
-  ];
-
-  const timeout = options?.timeout || DEFAULT_TIMEOUT;
-  const gatewayUrl = options?.gatewayUrl || getGatewayUrl();
-  const gatewayToken = options?.gatewayToken || getGatewayToken();
-
-  return new Promise((resolve, reject) => {
-    const proc = spawn('openclaw', args, {
-      timeout,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        OPENCLAW_GATEWAY_URL: gatewayUrl,
-        OPENCLAW_GATEWAY_TOKEN: gatewayToken,
-      } as Record<string, string>,
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout?.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      onChunk(chunk);
-    });
-
-    proc.stderr?.on('data', (data) => { stderr += data; });
-
-    // Handle abort signal
-    const abortHandler = () => {
-      proc.kill('SIGKILL');
-      reject(new DOMException('The operation was aborted', 'AbortError'));
-    };
-
-    if (options?.signal) {
-      if (options.signal.aborted) {
-        proc.kill('SIGKILL');
-        reject(new DOMException('The operation was aborted', 'AbortError'));
-        return;
-      }
-      options.signal.addEventListener('abort', abortHandler);
-    }
-
-    proc.on('close', (code) => {
-      options?.signal?.removeEventListener('abort', abortHandler);
-
-      if (code === 0) {
-        resolve(stdout.trim());
-      } else if (code === null) {
-        reject(new DOMException('The operation was aborted', 'AbortError'));
-      } else {
-        reject(new Error(`OpenClaw agent failed: ${stderr || stdout}`));
-      }
-    });
-
-    proc.on('error', (err) => {
-      options?.signal?.removeEventListener('abort', abortHandler);
-      reject(new Error(`Failed to run openclaw: ${err.message}`));
-    });
-  });
+  return spawnOpenClaw(buildAgentArgs(message), { ...options, onChunk });
 }
 
 // ============================================================================
@@ -333,19 +352,21 @@ export async function sendToOpenClawStream(
 // ============================================================================
 
 /**
- * Schedule a cron job via OpenClaw
+ * Schedule a cron job
  */
 export async function scheduleCron(
   name: string,
   schedule: string,
   prompt: string
 ): Promise<string> {
-  const result = await execOpenClaw([
+  const spawnConfig = await getSpawnConfig([
     'cron', 'add',
     '--name', name,
     '--schedule', schedule,
     '--prompt', prompt,
-  ], { timeout: 10000 });
+  ]);
+
+  const result = await execCommand(spawnConfig.command, spawnConfig.args, { timeout: 10000, env: spawnConfig.env });
 
   if (!result.success) {
     throw new Error(`Failed to schedule cron: ${result.stderr || result.stdout}`);
@@ -355,117 +376,236 @@ export async function scheduleCron(
 }
 
 /**
- * Send a notification via OpenClaw channels
+ * Send notification via OpenClaw
  */
 export async function sendNotification(to: string, message: string): Promise<string> {
-  const result = await execOpenClaw([
+  const spawnConfig = await getSpawnConfig([
     'message', 'send',
     '--to', to,
     '--message', message,
-  ], { timeout: 30000 });
+  ]);
+
+  const result = await execCommand(spawnConfig.command, spawnConfig.args, { timeout: 30000, env: spawnConfig.env });
 
   if (!result.success) {
-    throw new Error(`Failed to send message: ${result.stderr || result.stdout}`);
+    throw new Error(`Failed to send notification: ${result.stderr || result.stdout}`);
   }
 
   return result.stdout.trim();
 }
 
 /**
- * Write to OpenClaw memory
+ * Write to OpenClaw memory (local filesystem)
  */
 export async function writeToMemory(
   content: string,
-  filename: string = 'clawsql-cluster-state.md'
+  filename = 'clawsql-cluster-state.md'
 ): Promise<void> {
   const memoryDir = path.join(os.homedir(), '.openclaw', 'memory');
 
   try {
     await fs.promises.mkdir(memoryDir, { recursive: true });
-    const filePath = path.join(memoryDir, filename);
-    await fs.promises.appendFile(filePath, `\n\n---\n\n${content}`);
+    await fs.promises.appendFile(
+      path.join(memoryDir, filename),
+      `\n\n---\n\n${content}`
+    );
   } catch {
-    // Memory write is optional - silently ignore errors
+    // Silently ignore - memory is optional
   }
 }
 
 // ============================================================================
-// Agent Class
+// OpenClawAgent Class
 // ============================================================================
 
 /**
- * OpenClaw-backed AI agent
+ * OpenClaw-backed AI agent for ClawSQL
  */
 export class OpenClawAgent {
-  private context: CLIContext;
-  private _available: boolean | null = null;
+  private available: boolean | null = null;
 
-  constructor(ctx: CLIContext) {
-    this.context = ctx;
-  }
+  constructor(private context: CLIContext) {}
 
   async isAvailable(): Promise<boolean> {
-    if (this._available === null) {
-      this._available = await isOpenClawAvailable();
+    if (this.available === null) {
+      this.available = await isOpenClawAvailable();
     }
-    return this._available;
+    return this.available;
   }
 
   async process(input: string): Promise<string> {
     if (!(await this.isAvailable())) {
-      throw new Error('OpenClaw gateway is not running. Start it with: openclaw gateway');
+      throw new Error('OpenClaw not running. Start with: clawsql /start');
     }
 
-    const contextPrompt = this.buildContextPrompt();
-    return sendToOpenClaw(`${contextPrompt}\n\nUser query: ${input}`);
+    return sendToOpenClaw(`${this.buildContext()}\n\nUser: ${input}`);
   }
 
-  async scheduleHealthCheck(schedule: string = '0 * * * *'): Promise<string> {
+  async healthCheckCron(schedule = '0 * * * *'): Promise<string> {
     return scheduleCron(
       'clawsql:health-check',
       schedule,
-      'Check MySQL cluster health using clawsql skill. Report any issues with instances, replication lag, or failover status.'
+      'Check MySQL cluster health. Report issues with instances, replication, or failover.'
     );
   }
 
   async alert(channel: string, message: string): Promise<string> {
-    return sendNotification(channel, `🦞 ClawSQL Alert: ${message}`);
+    return sendNotification(channel, `🦞 ClawSQL: ${message}`);
   }
 
-  private buildContextPrompt(): string {
+  private buildContext(): string {
     const { orchestrator, proxysql, failover } = this.context.settings;
-    return `You are the ClawSQL assistant. You have access to MySQL cluster management tools.
-
-Current configuration:
-- Orchestrator: ${orchestrator.url}
-- ProxySQL: ${proxysql.host}:${proxysql.adminPort}
-- Auto-failover: ${failover.autoFailoverEnabled ? 'enabled' : 'disabled'}
-
-Use the clawsql skill commands to answer questions about the MySQL cluster.`;
+    return `ClawSQL assistant for MySQL cluster management.
+Orchestrator: ${orchestrator.url}
+ProxySQL: ${proxysql.host}:${proxysql.adminPort}
+Auto-failover: ${failover.autoFailoverEnabled ? 'enabled' : 'disabled'}`;
   }
 }
 
-/**
- * Create an OpenClaw agent instance
- */
 export function createOpenClawAgent(ctx: CLIContext): OpenClawAgent {
   return new OpenClawAgent(ctx);
 }
 
 // ============================================================================
-// Backwards Compatibility Exports
+// Model Provider Configuration
 // ============================================================================
 
-/** @deprecated Use isDockerOpenClawAvailable instead */
+export const SUPPORTED_PROVIDERS = [
+  { id: 'anthropic', name: 'Anthropic (Claude)', envKey: 'ANTHROPIC_API_KEY' },
+  { id: 'openai', name: 'OpenAI (GPT)', envKey: 'OPENAI_API_KEY' },
+  { id: 'xai', name: 'xAI (Grok)', envKey: 'XAI_API_KEY' },
+  { id: 'mistral', name: 'Mistral', envKey: 'MISTRAL_API_KEY' },
+  { id: 'ollama', name: 'Ollama (Local)', envKey: null },
+  { id: 'custom', name: 'Custom Provider', envKey: 'CUSTOM_API_KEY' },
+] as const;
+
+/**
+ * Get current model provider info
+ */
+export async function getModelProviderInfo(): Promise<ModelProviderInfo> {
+  const spawnConfig = await getSpawnConfig(['config', 'get', 'agents.defaults.model']);
+
+  const result = await execCommand(spawnConfig.command, spawnConfig.args, { timeout: CONFIG.healthCheckTimeout, env: spawnConfig.env });
+
+  if (!result.success || !result.stdout.trim()) {
+    return { provider: null, model: null, configured: false };
+  }
+
+  const model = result.stdout.trim();
+  const providerMatch = model.match(/^(\w+)\//);
+
+  return {
+    provider: providerMatch?.[1] ?? null,
+    model,
+    configured: !!model,
+  };
+}
+
+/**
+ * Configure model provider
+ */
+export async function configureModelProvider(
+  provider: string,
+  apiKey?: string,
+  options?: { baseUrl?: string; modelId?: string }
+): Promise<{ success: boolean; message: string }> {
+  const providerInfo = SUPPORTED_PROVIDERS.find(p => p.id === provider);
+
+  if (!providerInfo) {
+    return {
+      success: false,
+      message: `Unknown provider: ${provider}. Supported: ${SUPPORTED_PROVIDERS.map(p => p.id).join(', ')}`,
+    };
+  }
+
+  const args: string[] = ['onboard', '--non-interactive', '--accept-risk'];
+
+  if (provider === 'ollama') {
+    args.push('--auth-choice', 'ollama');
+  } else if (provider === 'custom') {
+    args.push('--auth-choice', 'custom-api-key');
+    if (apiKey) args.push('--custom-api-key', apiKey);
+  } else {
+    args.push('--auth-choice', `${provider}-api-key`);
+    if (apiKey) args.push(`--${provider}-api-key`, apiKey);
+  }
+
+  if (options?.baseUrl) args.push('--custom-base-url', options.baseUrl);
+  if (options?.modelId) args.push('--custom-model-id', options.modelId);
+
+  const spawnConfig = await getSpawnConfig(args);
+  const result = await execCommand(spawnConfig.command, spawnConfig.args, { timeout: 30000, env: spawnConfig.env });
+
+  return {
+    success: result.success,
+    message: result.success
+      ? `Configured ${providerInfo.name}`
+      : `Failed: ${result.stderr || result.stdout}`,
+  };
+}
+
+/**
+ * Test OpenClaw connectivity
+ */
+export async function testOpenClawConnection(query = 'Hello'): Promise<{
+  success: boolean;
+  response?: string;
+  error?: string;
+  latencyMs: number;
+}> {
+  const start = Date.now();
+
+  try {
+    const response = await sendToOpenClaw(query, { timeout: 30000 });
+    return { success: true, response, latencyMs: Date.now() - start };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      latencyMs: Date.now() - start,
+    };
+  }
+}
+
+/**
+ * Get detailed status for display
+ */
+export async function getDetailedOpenClawStatus(): Promise<{
+  available: boolean;
+  mode: 'docker' | 'local' | 'unavailable';
+  gatewayHealthy: boolean;
+  modelInfo: ModelProviderInfo;
+  controlUI: string;
+  gatewayUrl: string;
+}> {
+  const status = await getOpenClawStatus();
+  const gatewayHealthy = status.available && await isGatewayHealthy();
+  const modelInfo = status.available ? await getModelProviderInfo() : { provider: null, model: null, configured: false };
+
+  return {
+    available: status.available,
+    mode: status.isDocker ? 'docker' : status.isLocal ? 'local' : 'unavailable',
+    gatewayHealthy,
+    modelInfo,
+    controlUI: 'http://localhost:18790',
+    gatewayUrl: CONFIG.gatewayUrl,
+  };
+}
+
+// ============================================================================
+// Backwards Compatibility
+// ============================================================================
+
+/** @deprecated Use isDockerOpenClawAvailable */
 export const isDockerOpenClawContainerRunning = isDockerOpenClawAvailable;
 
-/** @deprecated Use isGatewayHealthy instead */
+/** @deprecated Use isGatewayHealthy */
 export const isOpenClawGatewayReachable = isGatewayHealthy;
 
-/** @deprecated Use getOpenClawStatus() or individual detection functions */
-export async function ensureOpenClawRunning(timeoutSeconds: number = 30): Promise<boolean> {
-  const startTime = Date.now();
-  while (Date.now() - startTime < timeoutSeconds * 1000) {
+/** @deprecated Use isGatewayHealthy() in a loop */
+export async function ensureOpenClawRunning(timeoutSeconds = 30): Promise<boolean> {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  while (Date.now() < deadline) {
     if (await isGatewayHealthy()) return true;
     await new Promise(r => setTimeout(r, 2000));
   }

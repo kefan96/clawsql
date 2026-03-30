@@ -119,6 +119,9 @@ function fixDockerComposePaths(filePath: string): void {
   // Fix volume paths: "./docker/orchestrator/..." -> "./orchestrator/..."
   content = content.replace(/\.\/docker\//g, './');
 
+  // Fix entrypoint path for openclaw: "./docker/openclaw/entrypoint.sh" -> "./openclaw/entrypoint.sh"
+  content = content.replace(/\.\/docker\/openclaw\/entrypoint\.sh/g, './openclaw/entrypoint.sh');
+
   fs.writeFileSync(filePath, content);
 }
 

@@ -12,19 +12,19 @@ OpenClaw provides an AI gateway that enables natural language interaction with C
 - Troubleshoot common issues
 - Automate routine operations
 
-## Setup
+## Quick Start
 
-### Automatic (Recommended)
+### Automatic Setup (Recommended)
 
-OpenClaw starts automatically as a Docker container when you run `/start`. No manual installation required.
+OpenClaw starts automatically as a Docker container when you run `/start`:
 
 ```bash
 clawsql> /start
 ```
 
 The gateway will be available at:
-- **Gateway**: `ws://localhost:18789`
 - **Control UI**: http://localhost:18790
+- **Gateway WebSocket**: ws://localhost:18789
 
 ### Using Local OpenClaw
 
@@ -44,7 +44,55 @@ openclaw gateway
 clawsql> /start
 ```
 
-## Usage
+## Control UI
+
+The Control UI is a browser-based interface at http://localhost:18790 that provides:
+
+- **Chat with AI**: Natural language interaction about MySQL operations
+- **Session Management**: View and manage conversation history
+- **Gateway Logs**: Real-time log viewing and filtering
+- **Configuration**: View and edit gateway settings
+- **Skills Management**: Enable/disable AI skills
+- **Cron Jobs**: Schedule automated tasks
+
+Access it by opening http://localhost:18790 in your browser after starting the platform.
+
+## Model Provider Setup
+
+By default, OpenClaw runs with the bundled qwen model, which has limited capabilities. For better AI responses, configure a stronger model provider:
+
+### Check Current Model
+
+```bash
+clawsql> /openclaw status
+```
+
+### Configure Provider
+
+```bash
+# Anthropic Claude (recommended)
+clawsql> /openclaw setup --provider anthropic --api-key YOUR_KEY
+
+# OpenAI GPT
+clawsql> /openclaw setup --provider openai --api-key YOUR_KEY
+
+# xAI Grok
+clawsql> /openclaw setup --provider xai --api-key YOUR_KEY
+
+# Ollama (local models)
+clawsql> /openclaw setup --provider ollama --base-url http://localhost:11434
+
+# Custom provider
+clawsql> /openclaw setup --provider custom --base-url https://api.example.com/v1 --api-key YOUR_KEY
+```
+
+### Test AI Connectivity
+
+```bash
+clawsql> /openclaw test "What is the cluster status?"
+```
+
+## CLI Commands
 
 ### Natural Language Commands
 
@@ -57,6 +105,14 @@ clawsql> help me set up a new replica
 clawsql> explain the failover process
 clawsql> why is my replica not replicating?
 ```
+
+### OpenClaw Management Commands
+
+| Command | Description |
+|---------|-------------|
+| `/openclaw status` | Show detailed OpenClaw status and model info |
+| `/openclaw setup` | Configure model provider |
+| `/openclaw test` | Test AI connectivity |
 
 ### Supported Operations
 
@@ -119,9 +175,12 @@ If a local OpenClaw is detected, the Docker container is skipped with `--scale o
 
 # Run diagnostics
 /doctor
+
+# Check OpenClaw specifically
+/openclaw status
 ```
 
-Both commands report OpenClaw health status and mode (Docker/local).
+Both `/status` and `/doctor` report OpenClaw health status and mode (Docker/local).
 
 ### Manual Checks
 
@@ -164,6 +223,15 @@ docker logs openclaw
 1. Verify gateway is accessible: `curl http://localhost:18789/health`
 2. Check CLI status: `openclaw status`
 3. Ensure `OPENCLAW_GATEWAY_URL` matches local gateway
+
+### AI Responses Are Poor
+
+**Symptom**: AI gives generic or unhelpful responses
+
+**Solutions**:
+1. Check current model: `/openclaw status`
+2. Configure a stronger provider: `/openclaw setup --provider anthropic`
+3. Test connectivity: `/openclaw test "What can you help me with?"`
 
 ## API Integration
 
@@ -225,6 +293,11 @@ await sendNotification('slack', 'Primary failover detected in cluster-1');
            ┌───────────────────────────────┐
            │      OpenClaw Gateway          │
            │    ws://localhost:18789        │
+           │                               │
+           │  ┌─────────────────────────┐  │
+           │  │     Control UI          │  │
+           │  │  http://localhost:18790 │  │
+           │  └─────────────────────────┘  │
            └───────────────────────────────┘
 ```
 

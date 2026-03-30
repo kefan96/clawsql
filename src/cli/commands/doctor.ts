@@ -2,29 +2,27 @@
  * ClawSQL CLI - Doctor Command
  *
  * Diagnoses system health and suggests fixes for common issues.
- * Similar to `brew doctor` or `npm doctor`.
  */
 
 import { Command, CLIContext } from '../registry.js';
 import { theme, indicators } from '../ui/components.js';
 import { spawn } from 'child_process';
 import {
-  getOpenClawStatus,
-  isGatewayHealthy,
+  getDetailedOpenClawStatus,
+  testOpenClawConnection,
 } from '../agent/openclaw-integration.js';
 import {
   detectRuntime,
   checkImagesInstalled,
 } from '../utils/docker-prereq.js';
+import { detectAIConfigFromEnv } from '../utils/ai-config.js';
 
-/**
- * Diagnostic result severity
- */
+// ============================================================================
+// Types
+// ============================================================================
+
 type Severity = 'ok' | 'warning' | 'error' | 'info';
 
-/**
- * Diagnostic check result
- */
 interface DiagnosticResult {
   name: string;
   severity: Severity;
@@ -34,204 +32,144 @@ interface DiagnosticResult {
   fixCommand?: string;
 }
 
-/**
- * Doctor command
- */
+// ============================================================================
+// Command Definition
+// ============================================================================
+
 export const doctorCommand: Command = {
   name: 'doctor',
   description: 'Diagnose system issues and suggest fixes',
   usage: '/doctor [--fix]',
-  handler: async (args: string[], ctx: CLIContext) => {
-    const formatter = ctx.formatter;
-    const shouldFix = args.includes('--fix');
-
-    console.log(formatter.header('ClawSQL Doctor'));
+  handler: async (_args: string[], ctx: CLIContext) => {
+    console.log(ctx.formatter.header('ClawSQL Doctor'));
     console.log(theme.muted('Running diagnostics...\n'));
 
     const results: DiagnosticResult[] = [];
-
-    // Run all diagnostic checks
     await runDiagnostics(ctx, results);
-
-    // Display results
     displayResults(results);
-
-    // Summary
-    const errors = results.filter(r => r.severity === 'error');
-    const warnings = results.filter(r => r.severity === 'warning');
-
-    console.log();
-    if (errors.length === 0 && warnings.length === 0) {
-      console.log(theme.success(`${indicators.check} All systems healthy!`));
-    } else {
-      console.log(theme.warning(`Found ${errors.length} error(s) and ${warnings.length} warning(s)`));
-
-      if (!shouldFix && (errors.length > 0 || warnings.length > 0)) {
-        console.log(theme.muted('\nSome issues may have automatic fixes available.'));
-      }
-    }
+    printSummary(results);
   },
 };
 
-/**
- * Run all diagnostic checks
- */
+// ============================================================================
+// Diagnostic Runner
+// ============================================================================
+
 async function runDiagnostics(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
-  // Platform checks
   const runtime = await checkContainerRuntime(results);
-  await checkDockerImages(runtime, results);
-  await checkClawSQLAPI(ctx, results);
-  await checkOrchestrator(ctx, results);
-  await checkProxySQL(ctx, results);
-  await checkPrometheus(ctx, results);
-  await checkOpenClaw(ctx, results);
 
-  // Configuration checks
+  await Promise.all([
+    checkDockerImages(runtime, results),
+    checkClawSQLAPI(ctx, results),
+    checkOrchestrator(ctx, results),
+    checkProxySQL(ctx, results),
+    checkPrometheus(ctx, results),
+    checkOpenClaw(ctx, results),
+  ]);
+
   checkConfiguration(ctx, results);
-
-  // MySQL checks
   await checkMySQLInstances(ctx, results);
   await checkReplicationTopology(ctx, results);
-
-  // Sync check
   await checkProxySQLSync(ctx, results);
 }
 
-/**
- * Check container runtime availability
- */
+// ============================================================================
+// Individual Checks
+// ============================================================================
+
 async function checkContainerRuntime(results: DiagnosticResult[]): Promise<string | null> {
-  const runtimes = ['docker', 'podman'];
-  let foundRuntime = '';
+  const runtime = await detectRuntime();
 
-  for (const runtime of runtimes) {
-    try {
-      const result = await execCommand([runtime, 'info'], true);
-      if (result.success) {
-        foundRuntime = runtime;
-        break;
-      }
-    } catch {
-      // Continue to next runtime
-    }
-  }
-
-  if (foundRuntime) {
-    results.push({
-      name: 'Container Runtime',
-      severity: 'ok',
-      message: `${foundRuntime} is installed and running`,
-    });
-
-    // Check if containers are running
-    try {
-      const psResult = await execCommand(
-        [foundRuntime, 'ps', '--filter', 'name=clawsql', '--filter', 'name=orchestrator',
-         '--filter', 'name=proxysql', '-q'],
-        true
-      );
-      const containerCount = psResult.stdout.trim().split('\n').filter(Boolean).length;
-
-      if (containerCount === 0) {
-        results.push({
-          name: 'Platform Containers',
-          severity: 'warning',
-          message: 'No ClawSQL containers are running',
-          fix: 'Start the platform with: /start',
-          fixCommand: '/start',
-        });
-      } else {
-        results.push({
-          name: 'Platform Containers',
-          severity: 'ok',
-          message: `${containerCount} container(s) running`,
-        });
-      }
-    } catch {
-      results.push({
-        name: 'Platform Containers',
-        severity: 'warning',
-        message: 'Could not check container status',
-      });
-    }
-  } else {
+  if (!runtime) {
     results.push({
       name: 'Container Runtime',
       severity: 'error',
       message: 'No container runtime found (docker or podman required)',
       fix: 'Install Docker from https://docs.docker.com/get-docker/',
     });
+    return null;
   }
 
-  return foundRuntime || null;
+  results.push({
+    name: 'Container Runtime',
+    severity: 'ok',
+    message: `${runtime} is installed and running`,
+  });
+
+  const psResult = await execCommand([runtime, 'ps', '--filter', 'name=clawsql', '--filter', 'name=orchestrator', '--filter', 'name=proxysql', '-q'], true);
+  const containerCount = psResult.stdout.trim().split('\n').filter(Boolean).length;
+
+  if (containerCount === 0) {
+    results.push({
+      name: 'Platform Containers',
+      severity: 'warning',
+      message: 'No ClawSQL containers are running',
+      fix: 'Start the platform with: /start',
+      fixCommand: '/start',
+    });
+  } else {
+    results.push({
+      name: 'Platform Containers',
+      severity: 'ok',
+      message: `${containerCount} container(s) running`,
+    });
+  }
+
+  return runtime;
 }
 
-/**
- * Check if Docker images are installed
- */
 async function checkDockerImages(runtime: string | null, results: DiagnosticResult[]): Promise<void> {
-  if (!runtime) {
-    return; // Already reported in container runtime check
-  }
+  if (!runtime) return;
 
-  const imageStatus = await checkImagesInstalled(runtime);
+  const status = await checkImagesInstalled(runtime);
 
-  if (imageStatus.installed.length === imageStatus.total) {
-    results.push({
-      name: 'Docker Images',
-      severity: 'ok',
-      message: `All ${imageStatus.total} images installed`,
-    });
-  } else if (imageStatus.installed.length === 0) {
+  if (status.installed.length === status.total) {
+    results.push({ name: 'Docker Images', severity: 'ok', message: `All ${status.total} images installed` });
+  } else if (status.installed.length === 0) {
     results.push({
       name: 'Docker Images',
       severity: 'error',
       message: 'No Docker images installed',
-      detail: 'Required images have not been pulled',
       fix: 'Pull images with: /install',
       fixCommand: '/install',
     });
   } else {
+    const missing = status.missing.slice(0, 3).map(i => i.split('/').pop()).join(', ');
     results.push({
       name: 'Docker Images',
       severity: 'warning',
-      message: `${imageStatus.installed.length}/${imageStatus.total} images installed`,
-      detail: `Missing: ${imageStatus.missing.slice(0, 3).map(i => i.split('/').pop()).join(', ')}${imageStatus.missing.length > 3 ? '...' : ''}`,
+      message: `${status.installed.length}/${status.total} images installed`,
+      detail: `Missing: ${missing}${status.missing.length > 3 ? '...' : ''}`,
       fix: 'Pull missing images with: /install',
       fixCommand: '/install',
     });
   }
 }
 
-/**
- * Check ClawSQL API health
- */
 async function checkClawSQLAPI(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
   try {
     const response = await fetch(`http://localhost:${ctx.settings.api.port}/health`, {
       signal: AbortSignal.timeout(5000),
     });
-    if (response.ok) {
-      const data = await response.json() as { status?: string };
-      if (data.status === 'healthy') {
-        results.push({
-          name: 'ClawSQL API',
-          severity: 'ok',
-          message: `Running on port ${ctx.settings.api.port}`,
-        });
-      } else {
-        results.push({
-          name: 'ClawSQL API',
-          severity: 'error',
-          message: `API returned status: ${data.status}`,
-          fix: 'Check logs: docker logs clawsql',
-        });
-      }
-    } else {
+
+    if (!response.ok) {
       results.push({
         name: 'ClawSQL API',
         severity: 'error',
         message: `API returned HTTP ${response.status}`,
+        fix: 'Check logs: docker logs clawsql',
+      });
+      return;
+    }
+
+    const data = await response.json() as { status?: string };
+    if (data.status === 'healthy') {
+      results.push({ name: 'ClawSQL API', severity: 'ok', message: `Running on port ${ctx.settings.api.port}` });
+    } else {
+      results.push({
+        name: 'ClawSQL API',
+        severity: 'error',
+        message: `API returned status: ${data.status}`,
         fix: 'Check logs: docker logs clawsql',
       });
     }
@@ -247,51 +185,18 @@ async function checkClawSQLAPI(ctx: CLIContext, results: DiagnosticResult[]): Pr
   }
 }
 
-/**
- * Check Orchestrator health
- */
 async function checkOrchestrator(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
+  // Health check first
   try {
     const isHealthy = await ctx.orchestrator.healthCheck();
-    if (isHealthy) {
-      results.push({
-        name: 'Orchestrator',
-        severity: 'ok',
-        message: `Running at ${ctx.settings.orchestrator.url}`,
-      });
-
-      // Check if instances are discovered
-      try {
-        const clusters = await ctx.orchestrator.getClusters();
-        if (clusters.length === 0) {
-          results.push({
-            name: 'MySQL Topology',
-            severity: 'warning',
-            message: 'No MySQL instances discovered in Orchestrator',
-            fix: 'Register instances with: /instances register <host>',
-            fixCommand: '/instances register <mysql-host>',
-          });
-        } else {
-          results.push({
-            name: 'MySQL Topology',
-            severity: 'ok',
-            message: `${clusters.length} cluster(s) discovered`,
-          });
-        }
-      } catch {
-        results.push({
-          name: 'MySQL Topology',
-          severity: 'warning',
-          message: 'Could not retrieve topology information',
-        });
-      }
-    } else {
+    if (!isHealthy) {
       results.push({
         name: 'Orchestrator',
         severity: 'error',
         message: 'Health check failed',
         fix: 'Check Orchestrator container: docker logs orchestrator',
       });
+      return;
     }
   } catch {
     results.push({
@@ -299,92 +204,90 @@ async function checkOrchestrator(ctx: CLIContext, results: DiagnosticResult[]): 
       severity: 'error',
       message: 'Cannot connect to Orchestrator',
       detail: `Expected at ${ctx.settings.orchestrator.url}`,
-      fix: 'Ensure Orchestrator container is running: docker ps | grep orchestrator',
+      fix: 'Ensure container is running: docker ps | grep orchestrator',
+    });
+    return;
+  }
+
+  // Orchestrator is healthy, add ok result
+  results.push({ name: 'Orchestrator', severity: 'ok', message: `Running at ${ctx.settings.orchestrator.url}` });
+
+  // Check for discovered clusters (separate try-catch to avoid duplicate error)
+  try {
+    const clusters = await ctx.orchestrator.getClusters();
+    if (clusters.length === 0) {
+      results.push({
+        name: 'MySQL Topology',
+        severity: 'warning',
+        message: 'No MySQL instances discovered in Orchestrator',
+        fix: 'Register instances with: /instances register <host>',
+      });
+    } else {
+      results.push({ name: 'MySQL Topology', severity: 'ok', message: `${clusters.length} cluster(s) discovered` });
+    }
+  } catch {
+    results.push({
+      name: 'MySQL Topology',
+      severity: 'warning',
+      message: 'Could not query Orchestrator for clusters',
+      fix: 'Check Orchestrator logs: docker logs orchestrator',
     });
   }
 }
 
-/**
- * Check ProxySQL health
- */
 async function checkProxySQL(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
   try {
     await ctx.proxysql.connect();
+    results.push({ name: 'ProxySQL', severity: 'ok', message: `Admin interface on port ${ctx.settings.proxysql.adminPort}` });
 
-    results.push({
-      name: 'ProxySQL',
-      severity: 'ok',
-      message: `Admin interface running on port ${ctx.settings.proxysql.adminPort}`,
-    });
-
-    // Check if MySQL servers are configured
-    try {
-      const servers = await ctx.proxysql.getServers();
-      if (servers.length === 0) {
-        results.push({
-          name: 'ProxySQL Servers',
-          severity: 'warning',
-          message: 'No MySQL servers configured in ProxySQL',
-          fix: 'Register MySQL instances, then sync with: /clusters sync',
-        });
-      } else {
-        const onlineServers = servers.filter(s => s.status === 'ONLINE');
-        if (onlineServers.length === servers.length) {
-          results.push({
-            name: 'ProxySQL Servers',
-            severity: 'ok',
-            message: `${onlineServers.length}/${servers.length} servers online`,
-          });
-        } else {
-          results.push({
-            name: 'ProxySQL Servers',
-            severity: 'warning',
-            message: `${onlineServers.length}/${servers.length} servers online`,
-            fix: 'Check MySQL server connectivity and credentials',
-          });
-        }
-      }
-    } catch {
+    const servers = await ctx.proxysql.getServers();
+    if (servers.length === 0) {
       results.push({
         name: 'ProxySQL Servers',
         severity: 'warning',
-        message: 'Could not retrieve server configuration',
+        message: 'No MySQL servers configured',
+        fix: 'Register instances, then sync with: /clusters sync',
       });
+    } else {
+      const online = servers.filter(s => s.status === 'ONLINE').length;
+      if (online === servers.length) {
+        results.push({ name: 'ProxySQL Servers', severity: 'ok', message: `${online}/${servers.length} servers online` });
+      } else {
+        results.push({
+          name: 'ProxySQL Servers',
+          severity: 'warning',
+          message: `${online}/${servers.length} servers online`,
+          fix: 'Check MySQL server connectivity and credentials',
+        });
+      }
     }
 
     await ctx.proxysql.close();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     results.push({
       name: 'ProxySQL',
       severity: 'error',
       message: 'Cannot connect to ProxySQL admin interface',
-      detail: message,
-      fix: 'Ensure ProxySQL container is running: docker ps | grep proxysql',
+      detail: error instanceof Error ? error.message : String(error),
+      fix: 'Ensure container is running: docker ps | grep proxysql',
     });
   }
 }
 
-/**
- * Check Prometheus health
- */
 async function checkPrometheus(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
   try {
     const response = await fetch(`${ctx.settings.prometheus.url}/-/healthy`, {
       signal: AbortSignal.timeout(5000),
     });
+
     if (response.ok) {
-      results.push({
-        name: 'Prometheus',
-        severity: 'ok',
-        message: `Running at ${ctx.settings.prometheus.url}`,
-      });
+      results.push({ name: 'Prometheus', severity: 'ok', message: `Running at ${ctx.settings.prometheus.url}` });
     } else {
       results.push({
         name: 'Prometheus',
         severity: 'warning',
         message: `Health check returned status ${response.status}`,
-        fix: 'Check Prometheus container: docker logs prometheus',
+        fix: 'Check container: docker logs prometheus',
       });
     }
   } catch {
@@ -398,64 +301,27 @@ async function checkPrometheus(ctx: CLIContext, results: DiagnosticResult[]): Pr
   }
 }
 
-/**
- * Check OpenClaw AI Gateway health
- */
 async function checkOpenClaw(_ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
   try {
-    const status = await getOpenClawStatus();
+    const status = await getDetailedOpenClawStatus();
 
-    if (status.available) {
-      // Check gateway health
-      const gatewayHealthy = await isGatewayHealthy();
-
-      if (gatewayHealthy) {
-        if (status.isDocker) {
-          results.push({
-            name: 'OpenClaw Gateway',
-            severity: 'ok',
-            message: 'Running in Docker container (ws://localhost:18789)',
-          });
-        } else if (status.isLocal) {
-          results.push({
-            name: 'OpenClaw Gateway',
-            severity: 'ok',
-            message: 'Using local installation (ws://localhost:18789)',
-          });
-        }
-      } else {
-        results.push({
-          name: 'OpenClaw Gateway',
-          severity: 'warning',
-          message: 'Gateway is not responding',
-          detail: 'Container is running but gateway health check failed',
-          fix: 'Check logs: docker logs openclaw',
-        });
-      }
-    } else {
-      // Check if Docker OpenClaw container exists but is not running
+    if (!status.available) {
+      // Check if container exists but stopped
       const runtime = await detectRuntime();
       if (runtime) {
-        try {
-          const psResult = await execCommand(
-            [runtime, 'ps', '-a', '--filter', 'name=openclaw', '--format', '{{.Status}}'],
-            true
-          );
-          const containerStatus = psResult.stdout.trim();
+        const psResult = await execCommand([runtime, 'ps', '-a', '--filter', 'name=openclaw', '--format', '{{.Status}}'], true);
+        const containerStatus = psResult.stdout.trim();
 
-          if (containerStatus && !containerStatus.toLowerCase().includes('up')) {
-            results.push({
-              name: 'OpenClaw Gateway',
-              severity: 'warning',
-              message: 'OpenClaw container exists but is not running',
-              detail: `Container status: ${containerStatus}`,
-              fix: 'Restart the platform with: /start',
-              fixCommand: '/start',
-            });
-            return;
-          }
-        } catch {
-          // Continue to default message
+        if (containerStatus && !containerStatus.toLowerCase().includes('up')) {
+          results.push({
+            name: 'OpenClaw Gateway',
+            severity: 'warning',
+            message: 'OpenClaw container exists but is not running',
+            detail: `Status: ${containerStatus}`,
+            fix: 'Restart the platform with: /start',
+            fixCommand: '/start',
+          });
+          return;
         }
       }
 
@@ -463,49 +329,94 @@ async function checkOpenClaw(_ctx: CLIContext, results: DiagnosticResult[]): Pro
         name: 'OpenClaw Gateway',
         severity: 'warning',
         message: 'OpenClaw gateway is not available',
-        detail: 'AI-powered features will not work without OpenClaw',
-        fix: 'Start the platform with: /start to launch OpenClaw in Docker',
+        detail: 'AI features will not work without OpenClaw',
+        fix: 'Start with: /start',
         fixCommand: '/start',
+      });
+      return;
+    }
+
+    if (!status.gatewayHealthy) {
+      results.push({
+        name: 'OpenClaw Gateway',
+        severity: 'warning',
+        message: 'Gateway is not responding',
+        fix: 'Check logs: docker logs openclaw',
+      });
+      return;
+    }
+
+    const modeDisplay = status.mode === 'docker' ? 'Running in Docker' : 'Using local installation';
+    results.push({ name: 'OpenClaw Gateway', severity: 'ok', message: `${modeDisplay} (ws://localhost:18789)` });
+
+    // Check for auto-detected AI config from environment
+    const aiConfig = detectAIConfigFromEnv();
+
+    // Model info
+    if (status.modelInfo.configured && status.modelInfo.model) {
+      results.push({
+        name: 'OpenClaw Model',
+        severity: 'ok',
+        message: `${status.modelInfo.provider || 'custom'}: ${status.modelInfo.model}`,
+      });
+    } else if (aiConfig.provider !== 'none') {
+      results.push({
+        name: 'OpenClaw Model',
+        severity: 'ok',
+        message: `${aiConfig.provider}${aiConfig.model ? '/' + aiConfig.model : ''} (auto-detected)`,
+      });
+    } else {
+      results.push({
+        name: 'OpenClaw Model',
+        severity: 'info',
+        message: 'Using bundled qwen model (limited)',
+        fix: 'Set ANTHROPIC_API_KEY or OPENAI_API_KEY for better AI',
+      });
+    }
+
+    // Quick AI test
+    const testResult = await testOpenClawConnection('ping');
+    if (testResult.success) {
+      results.push({ name: 'OpenClaw AI Test', severity: 'ok', message: `AI responding (${testResult.latencyMs}ms)` });
+    } else {
+      results.push({
+        name: 'OpenClaw AI Test',
+        severity: 'warning',
+        message: 'AI test failed',
+        detail: testResult.error,
+        fix: 'Check logs: docker logs openclaw',
       });
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     results.push({
       name: 'OpenClaw Gateway',
       severity: 'warning',
-      message: 'Could not check OpenClaw status',
-      detail: message,
-      fix: 'Ensure OpenClaw container is running: docker ps | grep openclaw',
+      message: 'Could not check status',
+      detail: error instanceof Error ? error.message : String(error),
+      fix: 'Ensure container is running: docker ps | grep openclaw',
     });
   }
 }
 
-/**
- * Check configuration issues
- */
 function checkConfiguration(ctx: CLIContext, results: DiagnosticResult[]): void {
-  // Check API token secret
   if (ctx.settings.api.tokenSecret === 'change-me-in-production') {
     results.push({
       name: 'API Token Secret',
       severity: 'warning',
       message: 'Using default token secret (not secure for production)',
-      fix: 'Set environment variable: API_TOKEN_SECRET=<your-secret>',
+      fix: 'Set: API_TOKEN_SECRET=<your-secret>',
     });
   }
 
-  // Check MySQL credentials
   if (!ctx.settings.mysql.adminPassword) {
     results.push({
       name: 'MySQL Credentials',
       severity: 'warning',
       message: 'MySQL admin password not configured',
-      detail: 'Required for instance discovery and management',
-      fix: 'Set environment variable: MYSQL_ADMIN_PASSWORD=<password>',
+      fix: 'Set: MYSQL_ADMIN_PASSWORD=<password>',
     });
   }
 
-  // Check auto-failover
   if (!ctx.settings.failover.autoFailoverEnabled) {
     results.push({
       name: 'Auto Failover',
@@ -515,19 +426,11 @@ function checkConfiguration(ctx: CLIContext, results: DiagnosticResult[]): void 
     });
   }
 
-  // Check metadata database
   if (!ctx.settings.metadataDb.host) {
-    results.push({
-      name: 'Metadata Database',
-      severity: 'ok',
-      message: 'Using auto-provisioned metadata-mysql container',
-    });
+    results.push({ name: 'Metadata Database', severity: 'ok', message: 'Using auto-provisioned container' });
   }
 }
 
-/**
- * Check MySQL instances health
- */
 async function checkMySQLInstances(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
   try {
     const clusters = await ctx.orchestrator.getClusters();
@@ -536,28 +439,26 @@ async function checkMySQLInstances(ctx: CLIContext, results: DiagnosticResult[])
       const topology = await ctx.orchestrator.getTopology(clusterName);
       if (!topology) continue;
 
+      const label = topology.name || clusterName;
+
       // Check primary
       if (topology.primary) {
         if (topology.primary.state !== 'online') {
           results.push({
-            name: `Primary [${topology.name || clusterName}]`,
+            name: `Primary [${label}]`,
             severity: 'error',
-            message: `Primary ${topology.primary.host}:${topology.primary.port} is ${topology.primary.state}`,
-            fix: 'Check MySQL instance status and connectivity',
+            message: `${topology.primary.host}:${topology.primary.port} is ${topology.primary.state}`,
+            fix: 'Check MySQL instance status',
           });
         } else {
-          results.push({
-            name: `Primary [${topology.name || clusterName}]`,
-            severity: 'ok',
-            message: `${topology.primary.host}:${topology.primary.port} is online`,
-          });
+          results.push({ name: `Primary [${label}]`, severity: 'ok', message: `${topology.primary.host}:${topology.primary.port} is online` });
         }
       } else {
         results.push({
-          name: `Primary [${topology.name || clusterName}]`,
+          name: `Primary [${label}]`,
           severity: 'error',
-          message: 'No primary found for cluster',
-          fix: 'Check replication setup or promote a replica: /failover switchover',
+          message: 'No primary found',
+          fix: 'Check replication or promote: /failover switchover',
         });
       }
 
@@ -565,45 +466,40 @@ async function checkMySQLInstances(ctx: CLIContext, results: DiagnosticResult[])
       for (const replica of topology.replicas) {
         if (replica.state !== 'online') {
           results.push({
-            name: `Replica [${topology.name || clusterName}]`,
+            name: `Replica [${label}]`,
             severity: 'warning',
-            message: `Replica ${replica.host}:${replica.port} is ${replica.state}`,
-            fix: 'Check replica MySQL status and replication connection',
+            message: `${replica.host}:${replica.port} is ${replica.state}`,
+            fix: 'Check replica status',
           });
         } else if (replica.replicationLag !== undefined && replica.replicationLag > 60) {
           results.push({
-            name: `Replica Lag [${topology.name || clusterName}]`,
+            name: `Replica Lag [${label}]`,
             severity: 'warning',
-            message: `Replica ${replica.host}:${replica.port} has high lag (${replica.replicationLag}s)`,
-            fix: 'Check replica performance and network connectivity',
+            message: `${replica.host}:${replica.port} lag: ${replica.replicationLag}s`,
+            fix: 'Check replica performance',
           });
         }
       }
     }
   } catch {
-    // Already handled in Orchestrator check
+    // Handled in Orchestrator check
   }
 }
 
-/**
- * Check replication topology issues
- */
 async function checkReplicationTopology(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
   try {
     const analysis = await ctx.orchestrator.getReplicationAnalysis();
 
     for (const issue of analysis) {
       const analysisType = issue.Analysis as string;
-      const description = issue.Description as string;
-      const affectedHost = (issue.Key as Record<string, string>)?.Hostname;
-
       if (analysisType && !analysisType.includes('NoProblem')) {
+        const host = (issue.Key as Record<string, string>)?.Hostname;
         results.push({
           name: 'Replication Analysis',
           severity: 'warning',
-          message: `${analysisType}: ${affectedHost || 'unknown'}`,
-          detail: description as string,
-          fix: 'Review Orchestrator UI for details: http://localhost:3000',
+          message: `${analysisType}: ${host || 'unknown'}`,
+          detail: issue.Description as string,
+          fix: 'Review Orchestrator UI: http://localhost:3000',
         });
       }
     }
@@ -612,244 +508,197 @@ async function checkReplicationTopology(ctx: CLIContext, results: DiagnosticResu
   }
 }
 
-/**
- * Check ProxySQL sync with Orchestrator topology
- */
 async function checkProxySQLSync(ctx: CLIContext, results: DiagnosticResult[]): Promise<void> {
   try {
-    // Get topology from Orchestrator
     const clusters = await ctx.orchestrator.getClusters();
-    if (clusters.length === 0) {
-      return; // No clusters to sync
-    }
+    if (clusters.length === 0) return;
 
-    // Get ProxySQL server stats and hostgroups
-    let proxysqlServers: Array<{ hostgroupId: number; hostname: string; port: number; status: string }> = [];
+    // Get ProxySQL data
+    let servers: Array<{ hostgroupId: number; hostname: string; port: number; status: string }> = [];
     let hostgroups: Array<{ writerHostgroup: number; readerHostgroup: number }> = [];
 
     try {
       await ctx.proxysql.connect();
-      proxysqlServers = await ctx.proxysql.getServers() as Array<{ hostgroupId: number; hostname: string; port: number; status: string }>;
+      servers = await ctx.proxysql.getServers() as typeof servers;
       hostgroups = await ctx.proxysql.getReplicationHostgroups();
       await ctx.proxysql.close();
     } catch {
-      // ProxySQL not available - already reported in checkProxySQL
       return;
     }
 
     // Build expected instances from Orchestrator
-    const expectedInstances = new Map<string, { host: string; port: number; role: string; cluster: string }>();
+    const expected = new Map<string, { host: string; port: number; role: string }>();
 
     for (const clusterName of clusters) {
       const topology = await ctx.orchestrator.getTopology(clusterName);
       if (!topology) continue;
 
       if (topology.primary) {
-        const key = `${topology.primary.host}:${topology.primary.port}`;
-        expectedInstances.set(key, {
+        expected.set(`${topology.primary.host}:${topology.primary.port}`, {
           host: topology.primary.host,
           port: topology.primary.port,
           role: 'primary',
-          cluster: topology.name || clusterName,
         });
       }
 
       for (const replica of topology.replicas) {
-        const key = `${replica.host}:${replica.port}`;
-        expectedInstances.set(key, {
+        expected.set(`${replica.host}:${replica.port}`, {
           host: replica.host,
           port: replica.port,
           role: 'replica',
-          cluster: topology.name || clusterName,
         });
       }
     }
 
-    // Build actual ProxySQL instances
-    const proxysqlInstances = new Map<string, { host: string; port: number; hostgroup: number; status: string }>();
-    for (const server of proxysqlServers) {
-      const key = `${server.hostname}:${server.port}`;
-      proxysqlInstances.set(key, {
-        host: server.hostname,
-        port: server.port,
-        hostgroup: server.hostgroupId,
-        status: server.status,
-      });
+    // Build actual from ProxySQL
+    const actual = new Map<string, { hostgroup: number }>();
+    for (const s of servers) {
+      actual.set(`${s.hostname}:${s.port}`, { hostgroup: s.hostgroupId });
     }
 
-    // Determine default hostgroups (coerce to numbers)
-    const defaultWriterHG = hostgroups.length > 0 ? Number(hostgroups[0].writerHostgroup) : 10;
-    const defaultReaderHG = hostgroups.length > 0 ? Number(hostgroups[0].readerHostgroup) : 20;
+    const writerHG = hostgroups.length > 0 ? Number(hostgroups[0].writerHostgroup) : 10;
+    const readerHG = hostgroups.length > 0 ? Number(hostgroups[0].readerHostgroup) : 20;
 
-    // Check for missing instances in ProxySQL
-    const missingInProxySQL: string[] = [];
-    const wrongHostgroup: string[] = [];
+    // Check for issues
+    const missing: string[] = [];
+    const wrongHG: string[] = [];
+    const orphans: string[] = [];
 
-    for (const [key, instance] of expectedInstances) {
-      const proxysqlInstance = proxysqlInstances.get(key);
-      if (!proxysqlInstance) {
-        missingInProxySQL.push(`${key} (${instance.role})`);
+    for (const [key, inst] of expected) {
+      const proxy = actual.get(key);
+      if (!proxy) {
+        missing.push(`${key} (${inst.role})`);
       } else {
-        // Check if hostgroup is correct (coerce both to numbers for comparison)
-        const actualHG = Number(proxysqlInstance.hostgroup);
-        const expectedHG = instance.role === 'primary' ? defaultWriterHG : defaultReaderHG;
-
-        // Skip if both are NaN or if they match
-        if (!isNaN(actualHG) && !isNaN(expectedHG) && actualHG !== expectedHG) {
-          wrongHostgroup.push(`${key} is in hg:${actualHG}, expected hg:${expectedHG}`);
+        const expectedHG = inst.role === 'primary' ? writerHG : readerHG;
+        if (!isNaN(proxy.hostgroup) && !isNaN(expectedHG) && proxy.hostgroup !== expectedHG) {
+          wrongHG.push(`${key} in hg:${proxy.hostgroup}, expected hg:${expectedHG}`);
         }
       }
     }
 
-    // Check for orphan instances in ProxySQL (not in Orchestrator)
-    const orphanInstances: string[] = [];
-    for (const [key, instance] of proxysqlInstances) {
-      if (!expectedInstances.has(key)) {
-        orphanInstances.push(`${key} (hg:${instance.hostgroup})`);
+    for (const [key, inst] of actual) {
+      if (!expected.has(key)) {
+        orphans.push(`${key} (hg:${inst.hostgroup})`);
       }
     }
 
-    // Report findings
-    if (missingInProxySQL.length > 0) {
+    // Report
+    if (missing.length > 0) {
       results.push({
         name: 'ProxySQL Sync',
         severity: 'warning',
-        message: `${missingInProxySQL.length} instance(s) from Orchestrator missing in ProxySQL`,
-        detail: missingInProxySQL.slice(0, 5).join(', ') + (missingInProxySQL.length > 5 ? '...' : ''),
-        fix: 'Sync clusters to ProxySQL with: /clusters sync',
+        message: `${missing.length} instance(s) missing in ProxySQL`,
+        detail: missing.slice(0, 5).join(', '),
+        fix: 'Sync with: /clusters sync',
         fixCommand: '/clusters sync',
       });
     }
 
-    if (wrongHostgroup.length > 0) {
+    if (wrongHG.length > 0) {
       results.push({
         name: 'ProxySQL Hostgroups',
         severity: 'warning',
-        message: `${wrongHostgroup.length} instance(s) in wrong hostgroup`,
-        detail: wrongHostgroup.slice(0, 3).join('; '),
-        fix: 'Re-sync clusters to ProxySQL with: /clusters sync',
-        fixCommand: '/clusters sync',
+        message: `${wrongHG.length} instance(s) in wrong hostgroup`,
+        detail: wrongHG.slice(0, 3).join('; '),
+        fix: 'Re-sync with: /clusters sync',
       });
     }
 
-    if (orphanInstances.length > 0) {
+    if (orphans.length > 0) {
       results.push({
         name: 'ProxySQL Orphans',
         severity: 'warning',
-        message: `${orphanInstances.length} instance(s) in ProxySQL not in Orchestrator`,
-        detail: orphanInstances.slice(0, 3).join(', '),
-        fix: 'Remove orphan servers from ProxySQL or register them in Orchestrator',
+        message: `${orphans.length} orphan instance(s) in ProxySQL`,
+        detail: orphans.slice(0, 3).join(', '),
+        fix: 'Remove orphans or register in Orchestrator',
       });
     }
 
-    // All synced properly
-    if (missingInProxySQL.length === 0 && wrongHostgroup.length === 0 && orphanInstances.length === 0 && expectedInstances.size > 0) {
-      results.push({
-        name: 'ProxySQL Sync',
-        severity: 'ok',
-        message: `All ${expectedInstances.size} instances properly synced`,
-      });
+    if (missing.length === 0 && wrongHG.length === 0 && orphans.length === 0 && expected.size > 0) {
+      results.push({ name: 'ProxySQL Sync', severity: 'ok', message: `All ${expected.size} instances synced` });
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    results.push({
-      name: 'ProxySQL Sync',
-      severity: 'warning',
-      message: 'Could not verify ProxySQL sync',
-      detail: message,
-    });
+  } catch {
+    // Already reported in other checks
   }
 }
 
-/**
- * Display diagnostic results
- */
+// ============================================================================
+// Display Utilities
+// ============================================================================
+
 function displayResults(results: DiagnosticResult[]): void {
-  // Group by severity
-  const errors = results.filter(r => r.severity === 'error');
-  const warnings = results.filter(r => r.severity === 'warning');
-  const ok = results.filter(r => r.severity === 'ok');
-  const info = results.filter(r => r.severity === 'info');
-
-  // Display errors first
-  if (errors.length > 0) {
-    console.log(theme.error.bold('\n✗ Errors:\n'));
-    for (const result of errors) {
-      displayResult(result);
-    }
-  }
-
-  // Display warnings
-  if (warnings.length > 0) {
-    console.log(theme.warning.bold('\n◆ Warnings:\n'));
-    for (const result of warnings) {
-      displayResult(result);
-    }
-  }
-
-  // Display info
-  if (info.length > 0) {
-    console.log(theme.info.bold('\n○ Information:\n'));
-    for (const result of info) {
-      displayResult(result);
-    }
-  }
-
-  // Display healthy checks
-  if (ok.length > 0) {
-    console.log(theme.success.bold('\n✓ Healthy:\n'));
-    for (const result of ok) {
-      console.log(theme.muted(`  ${result.name}: `) + theme.success(result.message));
-    }
-  }
-}
-
-/**
- * Display a single diagnostic result
- */
-function displayResult(result: DiagnosticResult): void {
-  const severityStyles = {
-    error: theme.error,
-    warning: theme.warning,
-    ok: theme.success,
-    info: theme.info,
+  const groups: Record<Severity, DiagnosticResult[]> = {
+    error: [],
+    warning: [],
+    info: [],
+    ok: [],
   };
 
-  const severityIcons = {
+  for (const r of results) {
+    groups[r.severity].push(r);
+  }
+
+  if (groups.error.length > 0) {
+    console.log(theme.error.bold('✗ Errors:'));
+    groups.error.forEach(displayResult);
+  }
+
+  if (groups.warning.length > 0) {
+    console.log(theme.warning.bold('◆ Warnings:'));
+    groups.warning.forEach(displayResult);
+  }
+
+  if (groups.info.length > 0) {
+    console.log(theme.info.bold('○ Information:'));
+    groups.info.forEach(displayResult);
+  }
+
+  if (groups.ok.length > 0) {
+    console.log(theme.success.bold('✓ Healthy:'));
+    groups.ok.forEach(r => console.log(theme.muted(`  ${r.name}: `) + theme.success(r.message)));
+  }
+}
+
+function displayResult(result: DiagnosticResult): void {
+  const icons: Record<Severity, string> = {
     error: theme.error(indicators.cross),
     warning: theme.warning(indicators.warning),
-    ok: theme.success(indicators.check),
     info: theme.info(indicators.info),
+    ok: theme.success(indicators.check),
   };
 
-  const icon = severityIcons[result.severity];
-  const nameColor = severityStyles[result.severity];
+  const colorFn = {
+    error: theme.error,
+    warning: theme.warning,
+    info: theme.info,
+    ok: theme.success,
+  }[result.severity];
 
-  console.log(`  ${icon} ${nameColor.bold(result.name)}: ${result.message}`);
+  console.log(`  ${icons[result.severity]} ${colorFn.bold(result.name)}: ${result.message}`);
 
-  if (result.detail) {
-    console.log(theme.muted(`      ${result.detail}`));
-  }
-
-  if (result.fix) {
-    console.log(theme.primary(`      Fix: ${result.fix}`));
-  }
-
-  if (result.fixCommand) {
-    console.log(theme.muted(`      Command: ${result.fixCommand}`));
-  }
-
-  console.log();
+  if (result.detail) console.log(theme.muted(`      ${result.detail}`));
+  if (result.fix) console.log(theme.primary(`      Fix: ${result.fix}`));
+  if (result.fixCommand) console.log(theme.muted(`      Command: ${result.fixCommand}`));
 }
 
-/**
- * Execute a shell command
- */
-function execCommand(cmd: string[], silent: boolean = false): Promise<{ success: boolean; stdout: string; stderr: string }> {
+function printSummary(results: DiagnosticResult[]): void {
+  const errors = results.filter(r => r.severity === 'error').length;
+  const warnings = results.filter(r => r.severity === 'warning').length;
+
+  if (errors === 0 && warnings === 0) {
+    console.log(theme.success(`${indicators.check} All systems healthy!`));
+  } else {
+    console.log(theme.warning(`Found ${errors} error(s) and ${warnings} warning(s)`));
+  }
+}
+
+// ============================================================================
+// Process Execution
+// ============================================================================
+
+function execCommand(cmd: string[], silent = false): Promise<{ success: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const proc = spawn(cmd[0], cmd.slice(1), {
-      stdio: silent ? 'pipe' : 'inherit',
-    });
+    const proc = spawn(cmd[0], cmd.slice(1), { stdio: silent ? 'pipe' : 'inherit' });
 
     let stdout = '';
     let stderr = '';
@@ -859,21 +708,8 @@ function execCommand(cmd: string[], silent: boolean = false): Promise<{ success:
       proc.stderr?.on('data', (data) => { stderr += data; });
     }
 
-    proc.on('close', (code) => {
-      resolve({
-        success: code === 0,
-        stdout,
-        stderr,
-      });
-    });
-
-    proc.on('error', () => {
-      resolve({
-        success: false,
-        stdout: '',
-        stderr: 'Failed to execute command',
-      });
-    });
+    proc.on('close', (code) => resolve({ success: code === 0, stdout, stderr }));
+    proc.on('error', () => resolve({ success: false, stdout: '', stderr: 'Failed to execute' }));
   });
 }
 

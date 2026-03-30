@@ -26,7 +26,6 @@ export const cleanupCommand: Command = {
     const force = args.includes('--force');
 
     console.log(theme.error.bold('◆ WARNING: This will remove all ClawSQL containers and data!'));
-    console.log();
 
     // Confirm unless --force
     if (!force) {
@@ -83,7 +82,6 @@ export const cleanupCommand: Command = {
       await removeLocalData(dockerPath);
     }
 
-    console.log();
     console.log(theme.success(`${indicators.check} Cleanup complete!`));
     console.log(theme.muted('Run "clawsql start" to start fresh.'));
     console.log(theme.muted('Log file: ~/.clawsql/logs/clawsql.log'));
@@ -99,18 +97,29 @@ async function stopContainers(runtime: string, onProgress: (msg: string) => void
     [runtime],
     ['ps', '-a', '--filter', 'name=clawsql', '--filter', 'name=orchestrator',
      '--filter', 'name=proxysql', '--filter', 'name=prometheus', '--filter', 'name=grafana',
-     '--filter', 'name=metadata-mysql', '--filter', 'name=mysql-', '-q'],
+     '--filter', 'name=metadata-mysql', '--filter', 'name=mysql-', '--filter', 'name=openclaw', '-q'],
     { logCommand: '/cleanup', onProgress }
   );
 
   if (result.success && result.stdout.trim()) {
     const containerIds = result.stdout.trim().split('\n').filter(Boolean);
 
-    for (const id of containerIds) {
-      await executeCommand([runtime], ['rm', '-f', id], {
-        logCommand: '/cleanup',
-        onProgress
-      });
+    if (containerIds.length > 0) {
+      // Use podman rm -af to handle dependencies (removes all specified containers)
+      // The -a flag removes all matching containers, -f forces removal
+      const rmResult = await executeCommand(
+        [runtime, 'rm', '-f', ...containerIds],
+        [],
+        { logCommand: '/cleanup', onProgress }
+      );
+
+      // If individual rm fails due to dependencies, try removing all at once
+      if (!rmResult.success && rmResult.stderr.includes('dependent containers')) {
+        await executeCommand([runtime], ['rm', '-af', ...containerIds], {
+          logCommand: '/cleanup',
+          onProgress
+        });
+      }
     }
   }
 }
@@ -119,12 +128,17 @@ async function stopContainers(runtime: string, onProgress: (msg: string) => void
  * Remove volumes
  */
 async function removeVolumes(runtime: string, onProgress: (msg: string) => void): Promise<void> {
+  // Remove volumes by pattern (handles both clawsql_* and docker_* prefixed volumes)
   const volumePatterns = [
     'clawsql',
-    'metadata-mysql-data',
-    'proxysql-data',
-    'prometheus-data',
-    'grafana-data',
+    'docker_openclaw-data',  // Old project name
+    'docker_mysql-primary-data',
+    'docker_mysql-replica-1-data',
+    'docker_mysql-replica-2-data',
+    'docker_proxysql-data',
+    'docker_prometheus-data',
+    'docker_grafana-data',
+    'docker_metadata-mysql-data',
   ];
 
   for (const pattern of volumePatterns) {
@@ -134,7 +148,7 @@ async function removeVolumes(runtime: string, onProgress: (msg: string) => void)
     });
   }
 
-  // Also try to find volumes with project prefix
+  // Also try to find volumes with project prefix or known names
   const listResult = await executeCommand([runtime], ['volume', 'ls', '-q'], {
     logCommand: '/cleanup',
     onProgress
@@ -142,8 +156,10 @@ async function removeVolumes(runtime: string, onProgress: (msg: string) => void)
   if (listResult.success && listResult.stdout.trim()) {
     const volumes = listResult.stdout.trim().split('\n');
     for (const vol of volumes) {
-      if (vol.includes('clawsql') || vol.includes('metadata') || vol.includes('proxysql') ||
-          vol.includes('prometheus') || vol.includes('grafana')) {
+      // Match clawsql_, docker_ (old project), or known volume names
+      if (vol.startsWith('clawsql_') || vol.startsWith('docker_') ||
+          vol.includes('openclaw') || vol.includes('metadata') || vol.includes('proxysql') ||
+          vol.includes('prometheus') || vol.includes('grafana') || vol.includes('mysql')) {
         await executeCommand([runtime], ['volume', 'rm', '-f', vol], {
           logCommand: '/cleanup',
           onProgress

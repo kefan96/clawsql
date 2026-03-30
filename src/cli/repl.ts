@@ -359,7 +359,7 @@ export class REPL {
         const remaining = processor.flush();
         if (remaining) process.stdout.write(remaining);
 
-        process.stdout.write('\n\n');
+        process.stdout.write('\n');
       }
     } catch (error) {
       // Clean up spinner

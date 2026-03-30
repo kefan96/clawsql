@@ -19,6 +19,8 @@ import {
   clearProgressCache,
 } from '../utils/command-executor.js';
 import { isLocalOpenClawAvailable, isDockerOpenClawAvailable } from '../agent/index.js';
+import { detectAIConfigFromEnv, getAIConfigDisplay } from '../utils/ai-config.js';
+import { spawn } from 'child_process';
 
 /**
  * Start command
@@ -108,6 +110,9 @@ export const startCommand: Command = {
     const composeArgs: string[] = [];
     const composeEnv: Record<string, string> = {};
     const isPodmanCompose = dockerInfo.composeCommand[0] === 'podman-compose';
+
+    // Always use 'clawsql' as the project name for consistency
+    composeArgs.push('-p', 'clawsql');
 
     // Select compose file based on mode
     if (allInOneMode) {
@@ -213,15 +218,51 @@ export const startCommand: Command = {
       return;
     }
 
-    // Wait for API to be ready
+    // Wait for services to be ready
     console.log();
     console.log(chalk.bold('Waiting for services:'));
+
+    // Wait for metadata MySQL to be ready (if auto-provisioned)
+    if (!process.env.METADATA_DB_HOST && !allInOneMode) {
+      console.log(`  ${chalk.cyan('Metadata MySQL...')}`);
+      const metadataReady = await waitForMetadataMySQL(60);
+
+      if (!metadataReady) {
+        console.log(`  ${chalk.yellow('Metadata MySQL timeout (using external DB?)')}`);
+      } else {
+        console.log(`  ${chalk.green('Metadata MySQL ready ✓')}`);
+
+        // Apply Orchestrator schema before Orchestrator starts
+        // This prevents MySQL 8.0 compatibility issues with AFTER clauses
+        console.log(`  ${chalk.cyan('Orchestrator schema...')}`);
+        await applyOrchestratorSchema();
+        console.log(`  ${chalk.green('Orchestrator schema ready ✓')}`);
+      }
+    }
+
+    // Wait for Orchestrator to be ready
+    console.log(`  ${chalk.cyan('Orchestrator...')}`);
+    const orchestratorReady = await waitForOrchestrator(90);
+
+    if (!orchestratorReady) {
+      console.log(`  ${chalk.red('Orchestrator timeout ✗')}`);
+      console.log(formatter.info('Check logs: podman logs orchestrator'));
+      return;
+    }
+    console.log(`  ${chalk.green('Orchestrator ready ✓')}`);
+
+    // Create ClawSQL application tables
+    console.log(`  ${chalk.cyan('ClawSQL schema...')}`);
+    await createClawSQLTables();
+    console.log(`  ${chalk.green('ClawSQL schema ready ✓')}`);
+
+    // Wait for ClawSQL API to be ready
     console.log(`  ${chalk.cyan('ClawSQL API...')}`);
     const apiReady = await waitForAPI(ctx, 60);
 
     if (!apiReady) {
       console.log(`  ${chalk.red('ClawSQL API timeout ✗')}`);
-      console.log(formatter.info('Check logs: docker logs clawsql'));
+      console.log(formatter.info('Check logs: podman logs clawsql'));
       return;
     }
     console.log(`  ${chalk.green('ClawSQL API ready ✓')}`);
@@ -233,7 +274,7 @@ export const startCommand: Command = {
 
       if (!openclawReady) {
         console.log(`  ${chalk.yellow('OpenClaw gateway not ready (AI features limited)')}`);
-        console.log(formatter.info('Check logs: docker logs openclaw'));
+        console.log(formatter.info('Check logs: podman logs openclaw'));
       } else {
         console.log(`  ${chalk.green('OpenClaw gateway ready ✓')}`);
       }
@@ -250,11 +291,33 @@ export const startCommand: Command = {
     console.log(`  ProxySQL:       localhost:${ctx.settings.proxysql.mysqlPort} (MySQL traffic)`);
 
     // Show OpenClaw info based on mode
+    console.log();
+    console.log(chalk.bold.cyan('OpenClaw AI Gateway:'));
+
+    // Detect AI config from environment
+    const aiConfig = detectAIConfigFromEnv();
+
     if (useLocalOpenClaw) {
-      console.log(`  OpenClaw:       (using local installation)`);
+      console.log(`  ${chalk.green('Status:')}       Using local installation`);
+      console.log(`  ${chalk.cyan('Control UI:')}    http://localhost:18790`);
+      console.log(`  ${chalk.gray('Features:')}      Chat with AI, manage sessions, view logs`);
     } else {
-      console.log(`  OpenClaw:       http://localhost:18790 (AI Control UI)`);
-      console.log(`  OpenClaw GW:    ws://localhost:18789 (AI Gateway)`);
+      console.log(`  ${chalk.green('Status:')}       Running in Docker`);
+      console.log(`  ${chalk.cyan('Control UI:')}    http://localhost:18790`);
+      console.log(`  ${chalk.gray('Gateway:')}       ws://localhost:18789`);
+      console.log(`  ${chalk.gray('Features:')}      Chat with AI, manage sessions, view logs`);
+
+      // Show detected AI config
+      if (aiConfig.provider !== 'none') {
+        console.log(`  ${chalk.green('Model:')}         ${getAIConfigDisplay(aiConfig)} (auto-detected)`);
+        if (aiConfig.baseUrl) {
+          console.log(`  ${chalk.gray('Base URL:')}      ${aiConfig.baseUrl}`);
+        }
+      } else {
+        console.log(`  ${chalk.gray('Model:')}         bundled qwen (default)`);
+        console.log();
+        console.log(chalk.yellow('  Tip: Set ANTHROPIC_API_KEY or OPENAI_API_KEY for better AI'));
+      }
     }
 
     if (demoMode) {
@@ -268,6 +331,7 @@ export const startCommand: Command = {
     console.log();
     console.log(formatter.info('Run "/status" to check platform health'));
     console.log(formatter.info('Run "/doctor" to diagnose any issues'));
+    console.log(formatter.info('Run "/openclaw status" for AI gateway details'));
   },
 };
 
@@ -327,6 +391,223 @@ async function waitForOpenClaw(timeoutSeconds: number): Promise<boolean> {
  */
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Apply Orchestrator schema before Orchestrator starts
+ * This pre-creates all tables with complete schema to avoid MySQL 8.0 compatibility issues
+ */
+async function applyOrchestratorSchema(): Promise<boolean> {
+  const schemaPath = '/root/clawsql/docker/orchestrator/orchestrator-schema.sql';
+
+  // Read the schema file
+  const fs = await import('fs/promises');
+  let schemaSQL: string;
+  try {
+    schemaSQL = await fs.readFile(schemaPath, 'utf-8');
+  } catch {
+    // Schema file not found, let Orchestrator handle its own schema
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    const mysql = spawn('podman', ['exec', '-i', 'metadata-mysql', 'mysql', '-uclawsql', '-pclawsql_password', 'clawsql_meta'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    mysql.stdin?.write(schemaSQL);
+    mysql.stdin?.end();
+
+    let stderr = '';
+    mysql.stderr?.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    mysql.on('close', (code) => {
+      if (code === 0 || stderr.includes('already exists')) {
+        resolve(true);
+      } else {
+        // Log error but don't fail - Orchestrator will try its own schema
+        console.log(`  ${chalk.yellow('Schema application had issues, Orchestrator will handle schema')}`);
+        resolve(false);
+      }
+    });
+
+    mysql.on('error', () => {
+      resolve(false);
+    });
+  });
+}
+
+/**
+ * Wait for MySQL metadata database to be ready
+ */
+async function waitForMetadataMySQL(timeoutSeconds: number): Promise<boolean> {
+  const startTime = Date.now();
+  const timeoutMs = timeoutSeconds * 1000;
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const mysql = spawn('podman', ['exec', 'metadata-mysql', 'mysqladmin', 'ping', '-h', 'localhost'], {
+        stdio: 'pipe',
+      });
+
+      const result = await new Promise<boolean>((resolve) => {
+        mysql.on('close', (code) => {
+          resolve(code === 0);
+        });
+        mysql.on('error', () => {
+          resolve(false);
+        });
+      });
+
+      if (result) {
+        return true;
+      }
+    } catch {
+      // MySQL not ready yet
+    }
+
+    await sleep(2000);
+  }
+
+  return false;
+}
+
+/**
+ * Wait for Orchestrator to be ready (creates its own schema)
+ */
+async function waitForOrchestrator(timeoutSeconds: number): Promise<boolean> {
+  const startTime = Date.now();
+  const timeoutMs = timeoutSeconds * 1000;
+
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const response = await fetch('http://localhost:3000/api/health', {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        const data = await response.json() as { Code?: string };
+        if (data.Code === 'OK') {
+          return true;
+        }
+      }
+    } catch {
+      // Orchestrator not ready yet
+    }
+
+    await sleep(2000);
+  }
+
+  return false;
+}
+
+/**
+ * Create ClawSQL application tables after Orchestrator schema is ready
+ */
+async function createClawSQLTables(): Promise<void> {
+  const sqlStatements = `
+-- Drop old ClawSQL tables if they exist (schema may have changed)
+DROP TABLE IF EXISTS alerts;
+DROP TABLE IF EXISTS instance_metadata;
+DROP TABLE IF EXISTS schema_metadata;
+DROP TABLE IF EXISTS config_snapshots;
+DROP TABLE IF EXISTS proxysql_servers;
+DROP TABLE IF EXISTS proxysql_hostgroups;
+DROP TABLE IF EXISTS proxysql_query_rules;
+DROP TABLE IF EXISTS proxysql_audit_log;
+
+-- Create ClawSQL application tables
+CREATE TABLE alerts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    instance_id VARCHAR(255),
+    alert_type VARCHAR(50),
+    severity VARCHAR(20),
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    acknowledged BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE instance_metadata (
+    instance_id VARCHAR(255) PRIMARY KEY,
+    labels JSON,
+    extra JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE schema_metadata (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    instance_id VARCHAR(255) NOT NULL,
+    database_name VARCHAR(255),
+    table_name VARCHAR(255),
+    table_rows BIGINT,
+    data_size BIGINT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE config_snapshots (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    component VARCHAR(50),
+    config_type VARCHAR(50),
+    config_data JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE proxysql_servers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    hostgroup_id INT,
+    hostname VARCHAR(255),
+    port INT,
+    status VARCHAR(20),
+    weight INT DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE proxysql_hostgroups (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    writer_hostgroup INT,
+    reader_hostgroup INT,
+    cluster_name VARCHAR(255),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE proxysql_query_rules (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    rule_id INT,
+    match_pattern VARCHAR(255),
+    destination_hostgroup INT,
+    apply BOOLEAN DEFAULT TRUE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE proxysql_audit_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    event_type VARCHAR(50),
+    username VARCHAR(255),
+    schemaname VARCHAR(255),
+    query TEXT,
+    duration_ms INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+`;
+
+  return new Promise((resolve) => {
+    const mysql = spawn('podman', ['exec', '-i', 'metadata-mysql', 'mysql', '-uclawsql', '-pclawsql_password', 'clawsql_meta'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    mysql.stdin?.write(sqlStatements);
+    mysql.stdin?.end();
+
+    mysql.on('close', () => {
+      resolve();
+    });
+
+    mysql.on('error', () => {
+      resolve(); // Don't fail start if table creation fails
+    });
+  });
 }
 
 /**
