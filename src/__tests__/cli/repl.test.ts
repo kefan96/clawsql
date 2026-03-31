@@ -36,14 +36,6 @@ jest.mock('inquirer', () => ({
   },
 }));
 
-// Mock openclaw
-jest.mock('openclaw', () => ({
-  OpenClaw: jest.fn().mockImplementation(() => ({
-    isGatewayAvailable: jest.fn().mockResolvedValue(false),
-    processNaturalLanguage: jest.fn(),
-  })),
-}));
-
 // Mock axios
 jest.mock('axios', () => ({
   default: {

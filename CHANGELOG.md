@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.6] - 2026-03-31
+## [0.2.8] - 2026-04-01
+
+### Changed
+- **Docker Image Optimization**: Reduced all-in-one image size by ~65MB
+  - Removed unnecessary packages: python3, pip, npm, gnupg, lsb-release
+  - Added npm prune step to copy only production dependencies
+- **Dependency Cleanup**: Removed 381 unused npm packages
+  - Removed `@fastify/jwt` (not used in codebase)
+  - Removed `openclaw` npm package (OpenClaw accessed via Docker container)
+  - Moved `pino-pretty` to devDependencies (dev-only logging formatter)
+
+### Removed
+- Deleted outdated Python-based `docker/Dockerfile` (project is Node.js)
+
+## [0.2.7] - 2026-03-31
 
 ### Added
 - **Predefined Templates**: 7 benchmarking templates for common MySQL cluster scenarios
@@ -149,6 +163,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interactive CLI with REPL interface
 - REST API with OpenAPI documentation
 
+[0.2.8]: https://github.com/clawsql/clawsql/compare/v0.2.7...v0.2.8
+[0.2.7]: https://github.com/clawsql/clawsql/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/clawsql/clawsql/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/clawsql/clawsql/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/clawsql/clawsql/compare/v0.2.3...v0.2.4
