@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-03-31
+
+### Added
+- **Template-Based Cluster Provisioning**: Define topology templates for standardized cluster deployment
+  - `/templates list|create|show|delete` commands for template management
+  - Templates define primary/replica count, replication mode, and settings
+- **Per-Cluster ProxySQL Ports**: Each cluster gets its own dedicated port for traffic isolation
+  - Automatic port allocation from configurable range (default: 6033-6050)
+  - Dynamic port configuration in ProxySQL at runtime
+- **Per-Cluster Hostgroup Blocks**: Automatic hostgroup allocation (writer=N, reader=N+10)
+  - Clear isolation between clusters
+  - Configurable hostgroup range (default: 10-200)
+- **Cluster Provisioning CLI**:
+  - `/clusters provision --template <name> --cluster <name> --hosts <h:p,...>` - Provision from template
+  - `/clusters deprovision <cluster> --force` - Remove provisioned cluster
+- **Automatic Replication Setup**: GTID-based replication configuration during provisioning
+- **Shared CLI Utilities**: New `src/cli/utils/args.ts` with common argument parsing functions
+
+### Changed
+- Refactored host:port parsing to use shared `parseHostPort()` utility
+- Added SQL escaping for replication credentials using `mysql.escape()`
+- Named constants for orchestrator and replication delays
+
+### Fixed
+- SQL injection vulnerability in replication setup (credentials now properly escaped)
+- JSON parse error handling in template manager
+
 ## [0.2.4] - 2026-03-31
 
 ### Changed
@@ -99,6 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interactive CLI with REPL interface
 - REST API with OpenAPI documentation
 
+[0.2.5]: https://github.com/clawsql/clawsql/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/clawsql/clawsql/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/clawsql/clawsql/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/clawsql/clawsql/compare/v0.2.1...v0.2.2

@@ -24,6 +24,7 @@ import cleanupCommand from './commands/cleanup.js';
 import doctorCommand from './commands/doctor.js';
 import installCommand from './commands/install.js';
 import openclawCommand from './commands/openclaw.js';
+import { templatesCommand } from './commands/templates.js';
 
 /**
  * Register all built-in commands
@@ -45,6 +46,7 @@ function registerBuiltinCommands(): void {
   registerCommand(doctorCommand);
   registerCommand(installCommand);
   registerCommand(openclawCommand);
+  registerCommand(templatesCommand);
 }
 
 /**

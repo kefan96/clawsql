@@ -40,6 +40,10 @@ const ProxySQLSettingsSchema = z.object({
   mysqlPort: z.number().int().default(6033),
   adminUser: z.string().default('clawsql'),
   adminPassword: z.string().default('clawsql'),
+  portRangeStart: z.number().int().min(1024).max(65535).default(6033),
+  portRangeEnd: z.number().int().min(1024).max(65535).default(6050),
+  hostgroupRangeStart: z.number().int().default(10),
+  hostgroupRangeEnd: z.number().int().default(200),
 });
 
 const PrometheusSettingsSchema = z.object({
@@ -197,6 +201,10 @@ function loadSettings(): Settings {
       mysqlPort: getEnvInt('PROXYSQL_MYSQL_PORT'),
       adminUser: getEnvString('PROXYSQL_ADMIN_USER'),
       adminPassword: getEnvString('PROXYSQL_ADMIN_PASSWORD'),
+      portRangeStart: getEnvInt('PROXYSQL_PORT_RANGE_START'),
+      portRangeEnd: getEnvInt('PROXYSQL_PORT_RANGE_END'),
+      hostgroupRangeStart: getEnvInt('PROXYSQL_HOSTGROUP_RANGE_START'),
+      hostgroupRangeEnd: getEnvInt('PROXYSQL_HOSTGROUP_RANGE_END'),
     },
 
     prometheus: {

@@ -92,6 +92,10 @@ export class ProxySQLManager {
       mysqlPort: 6033,
       adminUser: 'clawsql',
       adminPassword: 'clawsql',
+      portRangeStart: 6033,
+      portRangeEnd: 6050,
+      hostgroupRangeStart: 10,
+      hostgroupRangeEnd: 200,
     };
   }
 
@@ -639,6 +643,95 @@ export class ProxySQLManager {
    */
   getMySQLPort(): number {
     return this.settings.mysqlPort;
+  }
+
+  /**
+   * Execute a raw SQL query on ProxySQL admin interface
+   * Public method for external use
+   */
+  async executeRaw(sql: string, params: unknown[] = []): Promise<unknown[]> {
+    return this.execute(sql, params);
+  }
+
+  /**
+   * Get listening ports from ProxySQL
+   */
+  async getListeningPorts(): Promise<number[]> {
+    try {
+      const rows = await this.execute(
+        "SELECT variable_value FROM global_variables WHERE variable_name = 'mysql-interfaces'"
+      );
+      const value = (rows as Record<string, unknown>[])[0]?.variable_value as string;
+      if (!value) return [this.settings.mysqlPort];
+
+      // Parse ports from interfaces like "0.0.0.0:6033;0.0.0.0:6034"
+      const ports = value.split(';').map((iface) => {
+        const parts = iface.trim().split(':');
+        return parseInt(parts[parts.length - 1], 10);
+      }).filter((p) => !isNaN(p));
+
+      return ports.length > 0 ? ports : [this.settings.mysqlPort];
+    } catch (error) {
+      logger.error({ error }, 'Failed to get listening ports');
+      return [this.settings.mysqlPort];
+    }
+  }
+
+  /**
+   * Add a listening port to ProxySQL
+   */
+  async addListeningPort(port: number): Promise<boolean> {
+    try {
+      const currentPorts = await this.getListeningPorts();
+      if (currentPorts.includes(port)) {
+        logger.debug({ port }, 'Port already listening');
+        return true;
+      }
+
+      const newPorts = [...currentPorts, port];
+      const interfaces = newPorts.map((p) => `0.0.0.0:${p}`).join(';');
+
+      await this.execute(
+        "UPDATE global_variables SET variable_value = ? WHERE variable_name = 'mysql-interfaces'",
+        [interfaces]
+      );
+      await this.execute('LOAD MYSQL VARIABLES TO RUNTIME');
+
+      logger.info({ port, interfaces }, 'Added listening port');
+      return true;
+    } catch (error) {
+      logger.error({ error, port }, 'Failed to add listening port');
+      return false;
+    }
+  }
+
+  /**
+   * Remove a listening port from ProxySQL
+   */
+  async removeListeningPort(port: number): Promise<boolean> {
+    try {
+      const currentPorts = await this.getListeningPorts();
+      if (!currentPorts.includes(port)) {
+        return true;
+      }
+
+      const newPorts = currentPorts.filter((p) => p !== port);
+      const interfaces = newPorts.length > 0
+        ? newPorts.map((p) => `0.0.0.0:${p}`).join(';')
+        : `0.0.0.0:${this.settings.mysqlPort}`;
+
+      await this.execute(
+        "UPDATE global_variables SET variable_value = ? WHERE variable_name = 'mysql-interfaces'",
+        [interfaces]
+      );
+      await this.execute('LOAD MYSQL VARIABLES TO RUNTIME');
+
+      logger.info({ port }, 'Removed listening port');
+      return true;
+    } catch (error) {
+      logger.error({ error, port }, 'Failed to remove listening port');
+      return false;
+    }
   }
 
   /**

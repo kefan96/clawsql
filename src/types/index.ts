@@ -60,6 +60,21 @@ export enum FailureType {
   MEMORY_EXHAUSTED = 'memory_exhausted',
 }
 
+/** Replication mode for cluster templates */
+export enum ReplicationMode {
+  ASYNC = 'async',
+  SEMI_SYNC = 'semi-sync',
+  GROUP_REPLICATION = 'group-replication',
+}
+
+/** Provisioning status for template-based clusters */
+export enum ProvisionStatus {
+  PENDING = 'pending',
+  PROVISIONING = 'provisioning',
+  READY = 'ready',
+  FAILED = 'failed',
+}
+
 // =============================================================================
 // Interfaces
 // =============================================================================
@@ -157,6 +172,44 @@ export interface HealthCheckResult {
   threshold?: number;
 }
 
+/** Topology template for cluster provisioning */
+export interface TopologyTemplate {
+  templateId: string;
+  name: string;
+  description?: string;
+  primaryCount: number;
+  replicaCount: number;
+  replicationMode: ReplicationMode;
+  settings?: {
+    maxReplicationLag?: number;
+    failoverPriority?: 'lowest-lag' | 'highest-binlog';
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Cluster metadata for provisioned clusters */
+export interface ClusterMetadata {
+  clusterId: string;
+  templateId?: string;
+  assignedPort?: number;
+  writerHostgroup?: number;
+  readerHostgroup?: number;
+  provisionStatus: ProvisionStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Provisioned instance for template-based clusters */
+export interface ProvisionedInstance {
+  clusterId: string;
+  host: string;
+  port: number;
+  role: 'primary' | 'replica';
+  sequence: number;
+  provisionedAt: Date;
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -250,6 +303,41 @@ export function getClusterHealthStatus(cluster: MySQLCluster): HealthStatus {
   if (healthyRatio >= 1.0) return HealthStatus.HEALTHY;
   if (healthyRatio >= 0.5) return HealthStatus.DEGRADED;
   return HealthStatus.UNHEALTHY;
+}
+
+/** Create a topology template */
+export function createTopologyTemplate(
+  templateId: string,
+  overrides?: Partial<TopologyTemplate>
+): TopologyTemplate {
+  return {
+    templateId,
+    name: overrides?.name ?? 'unnamed',
+    description: overrides?.description,
+    primaryCount: overrides?.primaryCount ?? 1,
+    replicaCount: overrides?.replicaCount ?? 2,
+    replicationMode: overrides?.replicationMode ?? ReplicationMode.ASYNC,
+    settings: overrides?.settings,
+    createdAt: overrides?.createdAt ?? new Date(),
+    updatedAt: overrides?.updatedAt ?? new Date(),
+  };
+}
+
+/** Create cluster metadata */
+export function createClusterMetadata(
+  clusterId: string,
+  overrides?: Partial<ClusterMetadata>
+): ClusterMetadata {
+  return {
+    clusterId,
+    templateId: overrides?.templateId,
+    assignedPort: overrides?.assignedPort,
+    writerHostgroup: overrides?.writerHostgroup,
+    readerHostgroup: overrides?.readerHostgroup,
+    provisionStatus: overrides?.provisionStatus ?? ProvisionStatus.PENDING,
+    createdAt: overrides?.createdAt ?? new Date(),
+    updatedAt: overrides?.updatedAt ?? new Date(),
+  };
 }
 
 // =============================================================================

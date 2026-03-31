@@ -121,7 +121,7 @@ After starting, access these services:
 | Orchestrator | http://localhost:3000 | MySQL topology manager |
 | Prometheus | http://localhost:9090 | Metrics collection |
 | Grafana | http://localhost:3001 | Dashboards (admin/admin) |
-| ProxySQL | localhost:6033 | MySQL traffic (read/write split) |
+| ProxySQL | localhost:6033+ | MySQL traffic (per-cluster ports) |
 | OpenClaw Gateway | ws://localhost:18789 | AI agent gateway |
 | OpenClaw UI | http://localhost:18790 | AI control panel |
 
@@ -215,6 +215,36 @@ Available configuration keys:
 /clusters sync [--name <cluster>]                 # Sync to ProxySQL
 /clusters add-replica --name <cluster> --host <h:p>    # Add replica
 /clusters remove-replica --name <cluster> --host <h:p> # Remove replica
+
+# Template-based provisioning (recommended for production)
+/clusters provision --template <name> --cluster <name> --hosts <h:p,...>
+  # Provision cluster from template
+  # First host becomes primary, rest become replicas
+  # Auto-configures replication and ProxySQL
+
+/clusters deprovision <cluster> --force           # Remove provisioned cluster
+```
+
+### Template Management
+
+Templates define standardized cluster topologies for consistent provisioning:
+
+```bash
+/templates list                     # List available templates
+/templates create --name <name>     # Create new template
+  --replicas <n>          Number of replicas (default: 2)
+  --mode <mode>           Replication mode: async, semi-sync (default: async)
+  --description <desc>    Optional description
+
+/templates show <name>              # Show template details
+/templates delete <name> --force    # Delete template (requires --force)
+```
+
+Example workflow:
+```bash
+> /templates create --name standard --replicas 2 --mode async
+> /clusters provision --template standard --cluster myapp --hosts mysql1:3306,mysql2:3306,mysql3:3306
+# Creates: mysql1 (primary), mysql2/mysql3 (replicas) with dedicated ProxySQL port
 ```
 
 ### Failover Operations
@@ -308,13 +338,15 @@ Key settings:
 ┌─────────────────────────────────────────────────────────────────┐
 │                          ProxySQL                                │
 │                    (Read/Write Splitting)                        │
-│         Port 6033 - MySQL Traffic | Port 6032 - Admin           │
+│    Per-Cluster Ports: 6033 (cluster1), 6034 (cluster2), ...     │
+│                    Port 6032 - Admin Interface                   │
 └───────────────┬─────────────────────────────┬───────────────────┘
                 │                             │
         ┌───────▼───────┐             ┌───────▼───────┐
         │    Primary    │             │    Replica    │
         │   (Writer)    │────────────▶│   (Reader)    │
-        │   Port 3306   │   Repl      │   Port 3306   │
+        │   Hostgroup N │   Repl      │ Hostgroup N+10│
+        │   Port 3306   │             │   Port 3306   │
         └───────────────┘             └───────────────┘
                 │                             │
                 └──────────────┬──────────────┘
@@ -325,10 +357,11 @@ Key settings:
 │  │ Orchestrator│  │  Failover   │  │  Monitoring │              │
 │  │   Client    │  │   Engine    │  │   Service   │              │
 │  └─────────────┘  └─────────────┘  └─────────────┘              │
-│  ┌─────────────────────────────────────────────────┐            │
-│  │              OpenClaw AI Gateway                 │            │
-│  │         Port 18789 - Gateway | Port 18790 - UI  │            │
-│  └─────────────────────────────────────────────────┘            │
+│  ┌─────────────┐  ┌─────────────────────────────────────────────┐│
+│  │ Provisioning│  │              OpenClaw AI Gateway             ││
+│  │   Engine    │  │         Port 18789 - Gateway | Port 18790   ││
+│  │ (Templates) │  └─────────────────────────────────────────────┘│
+│  └─────────────┘                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -376,9 +409,11 @@ clawsql/
 │   │   ├── discovery/     # Instance discovery and topology
 │   │   ├── monitoring/    # Metrics and health checks
 │   │   ├── failover/      # Failover operations
+│   │   ├── provisioning/  # Template-based cluster provisioning
 │   │   └── routing/       # ProxySQL integration
 │   ├── api/               # REST API routes
 │   ├── cli/               # CLI commands
+│   │   └── utils/         # CLI utilities (arg parsing, etc.)
 │   ├── utils/             # Utilities
 │   └── __tests__/         # Test files
 ├── docker/                # Docker configurations

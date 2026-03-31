@@ -5,6 +5,9 @@
  */
 
 import { Command, CLIContext } from '../registry.js';
+import { getClusterProvisioner } from '../../core/provisioning/cluster-provisioner.js';
+import { getTemplateManager } from '../../core/provisioning/template-manager.js';
+import { parseStringArg, parseHostPort, getErrorMessage } from '../utils/args.js';
 
 /**
  * Clusters command
@@ -12,7 +15,7 @@ import { Command, CLIContext } from '../registry.js';
 export const clustersCommand: Command = {
   name: 'clusters',
   description: 'List and manage MySQL clusters',
-  usage: '/clusters <list|create|import|topology|add-replica|remove-replica|promote|sync> [args...]',
+  usage: '/clusters <list|create|import|topology|add-replica|remove-replica|promote|sync|provision|deprovision> [args...]',
   handler: async (args: string[], ctx: CLIContext) => {
     const formatter = ctx.formatter;
 
@@ -48,9 +51,15 @@ export const clustersCommand: Command = {
       case 'promote':
         await promoteReplica(args.slice(1), ctx);
         break;
+      case 'provision':
+        await provisionCluster(args.slice(1), ctx);
+        break;
+      case 'deprovision':
+        await deprovisionCluster(args.slice(1), ctx);
+        break;
       default:
         console.log(formatter.error(`Unknown subcommand: ${subcommand}`));
-        console.log(formatter.info('Available: list, create, import, topology, add-replica, remove-replica, promote, sync'));
+        console.log(formatter.info('Available: list, create, import, topology, add-replica, remove-replica, promote, sync, provision, deprovision'));
     }
   },
 };
@@ -150,25 +159,19 @@ async function createCluster(args: string[], ctx: CLIContext): Promise<void> {
   }
 
   // Parse primary
-  const primaryParts = primaryStr.split(':');
-  const primaryHost = primaryParts[0];
-  const primaryPort = primaryParts[1] ? parseInt(primaryParts[1], 10) : 3306;
+  const primary = parseHostPort(primaryStr);
 
   // Parse replicas
   const replicas: Array<{ host: string; port: number }> = [];
   if (replicasStr) {
     for (const r of replicasStr.split(',')) {
-      const parts = r.trim().split(':');
-      replicas.push({
-        host: parts[0],
-        port: parts[1] ? parseInt(parts[1], 10) : 3306,
-      });
+      replicas.push(parseHostPort(r.trim()));
     }
   }
 
   console.log(formatter.header('Creating Cluster'));
   console.log(formatter.keyValue('Name', name));
-  console.log(formatter.keyValue('Primary', `${primaryHost}:${primaryPort}`));
+  console.log(formatter.keyValue('Primary', `${primary.host}:${primary.port}`));
   if (replicas.length > 0) {
     console.log(formatter.keyValue('Replicas', replicas.map(r => `${r.host}:${r.port}`).join(', ')));
   }
@@ -177,12 +180,12 @@ async function createCluster(args: string[], ctx: CLIContext): Promise<void> {
   // Register primary
   console.log(formatter.info('Registering primary...'));
   try {
-    const primarySuccess = await ctx.orchestrator.discoverInstance(primaryHost, primaryPort);
+    const primarySuccess = await ctx.orchestrator.discoverInstance(primary.host, primary.port);
     if (!primarySuccess) {
       console.log(formatter.error('Failed to register primary instance'));
       return;
     }
-    console.log(formatter.success(`Primary ${primaryHost}:${primaryPort} registered`));
+    console.log(formatter.success(`Primary ${primary.host}:${primary.port} registered`));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.log(formatter.error(`Failed to register primary: ${message}`));
@@ -225,18 +228,16 @@ async function importCluster(args: string[], ctx: CLIContext): Promise<void> {
     return;
   }
 
-  const parts = primaryStr.split(':');
-  const primaryHost = parts[0];
-  const primaryPort = parts[1] ? parseInt(parts[1], 10) : 3306;
+  const primary = parseHostPort(primaryStr);
 
   console.log(formatter.header('Importing Cluster Topology'));
-  console.log(formatter.keyValue('Primary', `${primaryHost}:${primaryPort}`));
+  console.log(formatter.keyValue('Primary', `${primary.host}:${primary.port}`));
   console.log();
 
   // Discover primary - Orchestrator will auto-discover replicas
   console.log(formatter.info('Discovering topology...'));
   try {
-    const success = await ctx.orchestrator.discoverInstance(primaryHost, primaryPort);
+    const success = await ctx.orchestrator.discoverInstance(primary.host, primary.port);
     if (!success) {
       console.log(formatter.error('Failed to discover primary instance'));
       return;
@@ -246,7 +247,7 @@ async function importCluster(args: string[], ctx: CLIContext): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Get the discovered topology
-    const clusterName = await ctx.orchestrator.getClusterForInstance(primaryHost, primaryPort);
+    const clusterName = await ctx.orchestrator.getClusterForInstance(primary.host, primary.port);
     if (!clusterName) {
       console.log(formatter.warning('Topology discovered but cluster name not resolved'));
       return;
@@ -270,8 +271,7 @@ async function importCluster(args: string[], ctx: CLIContext): Promise<void> {
     console.log(formatter.info(`Cluster "${topology.name}" imported with ${topology.replicas.length} replica(s)`));
     console.log(formatter.info('View topology with: /clusters topology --name ' + topology.name));
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.log(formatter.error(`Import failed: ${message}`));
+    console.log(formatter.error(`Import failed: ${getErrorMessage(error)}`));
   }
 }
 
@@ -357,9 +357,7 @@ async function addReplica(args: string[], ctx: CLIContext): Promise<void> {
     return;
   }
 
-  const parts = hostStr.split(':');
-  const host = parts[0];
-  const port = parts[1] ? parseInt(parts[1], 10) : 3306;
+  const { host, port } = parseHostPort(hostStr);
 
   console.log(formatter.info(`Adding replica ${host}:${port} to cluster "${name}"...`));
 
@@ -373,8 +371,7 @@ async function addReplica(args: string[], ctx: CLIContext): Promise<void> {
       console.log(formatter.error('Failed to add replica'));
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.log(formatter.error(`Failed to add replica: ${message}`));
+    console.log(formatter.error(`Failed to add replica: ${getErrorMessage(error)}`));
   }
 }
 
@@ -392,9 +389,7 @@ async function removeReplica(args: string[], ctx: CLIContext): Promise<void> {
     return;
   }
 
-  const parts = hostStr.split(':');
-  const host = parts[0];
-  const port = parts[1] ? parseInt(parts[1], 10) : 3306;
+  const { host, port } = parseHostPort(hostStr);
 
   console.log(formatter.info(`Removing replica ${host}:${port} from cluster "${name}"...`));
 
@@ -406,8 +401,7 @@ async function removeReplica(args: string[], ctx: CLIContext): Promise<void> {
       console.log(formatter.error('Failed to remove replica'));
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.log(formatter.error(`Failed to remove replica: ${message}`));
+    console.log(formatter.error(`Failed to remove replica: ${getErrorMessage(error)}`));
   }
 }
 
@@ -425,9 +419,7 @@ async function promoteReplica(args: string[], ctx: CLIContext): Promise<void> {
     return;
   }
 
-  const parts = hostStr.split(':');
-  const host = parts[0];
-  const port = parts[1] ? parseInt(parts[1], 10) : 3306;
+  const { host, port } = parseHostPort(hostStr);
 
   console.log(formatter.header('Promoting Replica to Primary'));
   console.log(formatter.keyValue('Cluster', name));
@@ -520,12 +512,125 @@ async function syncCluster(args: string[], ctx: CLIContext): Promise<void> {
 }
 
 /**
- * Parse a string argument
+ * Provision a cluster from a template
  */
-function parseStringArg(args: string[], name: string): string | undefined {
-  const idx = args.indexOf(name);
-  if (idx === -1 || idx + 1 >= args.length) return undefined;
-  return args[idx + 1];
+async function provisionCluster(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+
+  const templateName = parseStringArg(args, '--template');
+  const clusterName = parseStringArg(args, '--cluster');
+  const hostsStr = parseStringArg(args, '--hosts');
+
+  if (!templateName || !clusterName || !hostsStr) {
+    console.log(formatter.error('Missing required arguments. Usage: /clusters provision --template <name> --cluster <name> --hosts <h:p,h:p,...>'));
+    console.log(formatter.info('  --template <name>    Template name (create with /templates create)'));
+    console.log(formatter.info('  --cluster <name>     Cluster name (unique identifier)'));
+    console.log(formatter.info('  --hosts <h:p,...>    Comma-separated host:port list (first becomes primary)'));
+    return;
+  }
+
+  // Parse hosts
+  const hosts = hostsStr.split(',').map((h) => parseHostPort(h.trim()));
+
+  console.log(formatter.header('Provisioning Cluster'));
+  console.log(formatter.keyValue('Template', templateName));
+  console.log(formatter.keyValue('Cluster Name', clusterName));
+  console.log(formatter.keyValue('Hosts', hosts.map((h) => `${h.host}:${h.port}`).join(', ')));
+  console.log();
+
+  // Verify template exists
+  const templateManager = getTemplateManager();
+  const template = await templateManager.get(templateName);
+  if (!template) {
+    console.log(formatter.error(`Template "${templateName}" not found`));
+    console.log(formatter.info('List available templates with: /templates list'));
+    return;
+  }
+
+  // Validate host count
+  const validation = await templateManager.validateHosts(template, hosts);
+  if (!validation.valid) {
+    console.log(formatter.error(validation.error || 'Invalid host configuration'));
+    return;
+  }
+
+  console.log(formatter.info('Provisioning cluster...'));
+
+  try {
+    const provisioner = getClusterProvisioner();
+    const result = await provisioner.provision(templateName, clusterName, hosts);
+
+    if (result.success) {
+      console.log(formatter.success('Cluster provisioned successfully!'));
+      console.log(formatter.keyValue('  Cluster ID', result.clusterId));
+      console.log(formatter.keyValue('  Assigned Port', result.assignedPort.toString()));
+      console.log(formatter.keyValue('  Writer Hostgroup', result.writerHostgroup.toString()));
+      console.log(formatter.keyValue('  Reader Hostgroup', result.readerHostgroup.toString()));
+      console.log(formatter.keyValue('  Primary', `${result.primary.host}:${result.primary.port}`));
+      console.log(formatter.keyValue('  Replicas', result.replicas.map((r) => `${r.host}:${r.port}`).join(', ')));
+      console.log();
+      console.log(formatter.info(`Connect to this cluster via ProxySQL port ${result.assignedPort}`));
+    } else {
+      console.log(formatter.error(`Provisioning failed: ${result.error}`));
+    }
+  } catch (error) {
+    console.log(formatter.error(`Provisioning failed: ${getErrorMessage(error)}`));
+  }
+}
+
+/**
+ * Deprovision a cluster
+ */
+async function deprovisionCluster(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+
+  const clusterName = parseStringArg(args, '--cluster') || args[0];
+  const force = args.includes('--force');
+
+  if (!clusterName) {
+    console.log(formatter.error('Missing cluster name. Usage: /clusters deprovision <cluster> [--force]'));
+    return;
+  }
+
+  // Check cluster exists
+  const provisioner = getClusterProvisioner();
+  const metadata = await provisioner.getClusterMetadata(clusterName);
+  if (!metadata) {
+    console.log(formatter.error(`Cluster "${clusterName}" not found`));
+    return;
+  }
+
+  console.log(formatter.header('Deprovisioning Cluster'));
+  console.log(formatter.keyValue('Cluster', clusterName));
+  console.log(formatter.keyValue('Status', metadata.provisionStatus));
+  if (metadata.assignedPort) {
+    console.log(formatter.keyValue('Port', metadata.assignedPort.toString()));
+  }
+  if (metadata.writerHostgroup && metadata.readerHostgroup) {
+    console.log(formatter.keyValue('Hostgroups', `${metadata.writerHostgroup}/${metadata.readerHostgroup}`));
+  }
+  console.log();
+
+  if (!force) {
+    console.log(formatter.warning('This will remove the cluster, stop replication, and clean up ProxySQL configuration.'));
+    console.log(formatter.info('Use --force to confirm deprovisioning'));
+    return;
+  }
+
+  console.log(formatter.info('Deprovisioning cluster...'));
+
+  try {
+    const result = await provisioner.deprovision(clusterName);
+
+    if (result.success) {
+      console.log(formatter.success(`Cluster "${clusterName}" deprovisioned successfully`));
+    } else {
+      console.log(formatter.error(`Deprovisioning failed: ${result.error}`));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(formatter.error(`Deprovisioning failed: ${message}`));
+  }
 }
 
 export default clustersCommand;

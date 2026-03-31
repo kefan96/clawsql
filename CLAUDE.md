@@ -117,6 +117,20 @@ Available keys: `mysql.admin_user`, `mysql.admin_password`, `mysql.repl_user`, `
 /clusters create --name <n> --primary <h:p> [--replicas <h:p,...>]
 /clusters sync [--name <cluster>]         # Sync to ProxySQL
 /clusters promote --name <n> --host <h:p> # Promote replica to primary
+
+# Template-based provisioning
+/clusters provision --template <name> --cluster <name> --hosts <h:p,...>
+  # Provision from template (first host=primary, rest=replicas)
+/clusters deprovision <cluster> --force   # Remove provisioned cluster
+```
+
+### Template Management
+
+```bash
+/templates list                     # List available templates
+/templates create --name <n> [--replicas <n>] [--mode <async|semi-sync>]
+/templates show <name>              # Show template details
+/templates delete <name> --force    # Delete template
 ```
 
 ## Architecture Overview
@@ -141,8 +155,12 @@ ClawSQL is a Node.js/TypeScript application that provides unified management for
   - `executor.ts`: Failover orchestration (`FailoverOperation`, `FailoverExecutor`)
   - `recovery.ts`: Instance recovery and reintegration
 
+- **provisioning/**: Template-based cluster provisioning
+  - `template-manager.ts`: Template CRUD operations and validation
+  - `cluster-provisioner.ts`: Provisioning engine with replication setup
+
 - **routing/**: ProxySQL integration
-  - `proxysql_manager.ts`: Dynamic ProxySQL configuration
+  - `proxysql_manager.ts`: Dynamic ProxySQL configuration, per-cluster port allocation
   - `load_balancer.ts`: Dynamic weight adjustment for read replicas
 
 ### API Layer (`src/api/`)
@@ -157,8 +175,10 @@ ClawSQL is a Node.js/TypeScript application that provides unified management for
 - `registry.ts`: Command registration and context
 - `commands/`: Individual command implementations
   - `start.ts`, `stop.ts`, `status.ts`, `cleanup.ts`, `doctor.ts`
-  - `config.ts`, `instances.ts`, `clusters.ts`
+  - `config.ts`, `instances.ts`, `clusters.ts`, `templates.ts`
   - `topology.ts`, `failover.ts`, `health.ts`, `sql.ts`
+- `utils/`: Shared CLI utilities
+  - `args.ts`: Common argument parsing (`parseHostPort`, `parseStringArg`, etc.)
 
 ### Configuration
 
@@ -181,8 +201,9 @@ Settings loaded from environment variables via Zod schemas. See `.env.example`.
    - API uses GET method for discover/forget operations
 
 2. **ProxySQL**: Traffic routing layer
-   - Read/write splitting hostgroups (10=writer, 20=reader)
-   - Dynamic server configuration
+   - Per-cluster port allocation (6033-6050 range)
+   - Per-cluster hostgroup blocks (writer=N, reader=N+10)
+   - Dynamic server configuration at runtime
    - Note: ProxySQL admin doesn't support prepared statements
 
 3. **Prometheus**: Metrics storage

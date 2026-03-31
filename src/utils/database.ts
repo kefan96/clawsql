@@ -175,6 +175,46 @@ export class DatabaseManager {
         INDEX idx_audit_entity (entity_type, entity_id),
         INDEX idx_audit_time (changed_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+      -- Topology templates for cluster provisioning
+      CREATE TABLE IF NOT EXISTS topology_templates (
+        template_id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(64) NOT NULL,
+        description TEXT,
+        primary_count INT DEFAULT 1,
+        replica_count INT DEFAULT 2,
+        replication_mode ENUM('async', 'semi-sync', 'group-replication') DEFAULT 'async',
+        settings JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+      -- Cluster metadata for provisioned clusters
+      CREATE TABLE IF NOT EXISTS cluster_metadata (
+        cluster_id VARCHAR(128) PRIMARY KEY,
+        template_id VARCHAR(36),
+        assigned_port INT,
+        writer_hostgroup INT,
+        reader_hostgroup INT,
+        provision_status ENUM('pending', 'provisioning', 'ready', 'failed') DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (template_id) REFERENCES topology_templates(template_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+      -- Provisioned instances for template-based clusters
+      CREATE TABLE IF NOT EXISTS provisioned_instances (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        cluster_id VARCHAR(128) NOT NULL,
+        host VARCHAR(255) NOT NULL,
+        port INT NOT NULL,
+        role ENUM('primary', 'replica') NOT NULL,
+        sequence INT NOT NULL,
+        provisioned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_cluster_instance (cluster_id, host, port),
+        INDEX idx_cluster (cluster_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `;
 
     const statements = schema.split(';').filter(s => s.trim());
