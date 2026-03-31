@@ -23,6 +23,93 @@ import {
 } from './ui/components.js';
 
 /**
+ * All thinking messages combined for variety
+ * All messages have * prefix for consistent cute effect
+ */
+const ALL_THINKING_MESSAGES = [
+  '* Thinking...',
+  '* Consulting the cluster...',
+  '* Querying the depths...',
+  '* Processing your request...',
+  '* Analyzing topology...',
+  '* Connecting the dots...',
+  '* Parsing SQL mysteries...',
+  '* Asking the replicas nicely...',
+  '* Waking up the primary...',
+  '* Counting rows in background...',
+  '* Optimizing queries in my head...',
+  '* Checking for runaway transactions...',
+  '* Petitioning the binlogs...',
+  '* Synchronizing brain cells...',
+  '* Consulting the MySQL oracle...',
+  '* Herding the clusters...',
+  '* Decoding network packets...',
+  '* Channeling database vibes...',
+  '* Asking nicely for permission...',
+  '* Negotiating with ProxySQL...',
+  '* Nebulizing thoughts...',
+  '* Vaporizing uncertainties...',
+  '* Ionizing hypotheses...',
+  '* Collapsing wave functions...',
+  '* Entangling qubits of logic...',
+  '* Supernova-ing stale ideas...',
+  '* Black hole-ing bad queries...',
+  '* Solar flare-ing insights...',
+  '* Galaxy forming knowledge...',
+  '* Big Bang-ing solutions...',
+  '* Pulsar-beaming answers...',
+  '* Wormhole-ing through data...',
+  '* Asteroid-impacting problems...',
+  '* Meteor-showering fixes...',
+  '* Cosmic dust settling...',
+  '* Dark matter illuminating...',
+  '* Parallel universe syncing...',
+  '* Quantum tunneling to truth...',
+  '* String theory unraveling...',
+  '* Event horizon approaching...',
+  '* InnoDB pages fluttering...',
+  '* Buffer pool swimming...',
+  '* Binlog dancing...',
+  '* Replica lag shrinking...',
+  '* GTID cascading...',
+  '* MVCC breathing...',
+  '* Undo log rewinding...',
+  '* Redo log flushing...',
+  '* Tablespace expanding...',
+  '* Schema morphing...',
+  '* Query cache evaporating...',
+  '* Connection pool bubbling...',
+  '* Index b-tree climbing...',
+  '* Foreign key handshaking...',
+  '* Trigger finger itching...',
+  '* Stored procedure chanting...',
+  '* View materializing...',
+  '* Partition splitting...',
+  '* Shard rebalancing...',
+  '* Cursor iterating...',
+  '* Loading existential dread...',
+  '* Downloading more RAM for brain...',
+  '* Mining wisdom blocks...',
+  '* Proof-of-stake thinking...',
+  '* Smart contract verifying...',
+  '* Blockchain syncing thoughts...',
+  '* GPU-accelerating neurons...',
+  '* LLM temperature rising...',
+  '* Token context expanding...',
+  '* Vector embedding clustering...',
+  '* Attention heads focusing...',
+  '* Transformer layers stacking...',
+  '* Gradient descent descending...',
+  '* Loss function minimizing...',
+  '* Epoch number increasing...',
+  '* Batch size optimizing...',
+  '* Dropout rate dropping...',
+  '* Learning rate adjusting...',
+  '* Weight decay decaying...',
+  '* Activation function activating...',
+];
+
+/**
  * REPL configuration
  */
 export interface REPLConfig {
@@ -61,7 +148,8 @@ export class REPL {
     this.loadHistory();
     this.initAgent();
     this.initCompleter();
-    this.rawInputHandler = new RawInputHandler(this.getPrompt());
+    // Pass history to raw input handler for history navigation
+    this.rawInputHandler = new RawInputHandler(this.getPrompt(), this.history);
   }
 
   /**
@@ -227,36 +315,14 @@ export class REPL {
     const abortController = new AbortController();
     let wasAborted = false;
 
-    // Start thinking spinner
+    // Start thinking spinner with enhanced animation
     const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-    const thinkingMessages = [
-      'Thinking...',
-      'Consulting the cluster...',
-      'Querying the depths...',
-      'Processing your request...',
-      'Analyzing topology...',
-      'Connecting the dots...',
-      'Parsing SQL mysteries...',
-      'Asking the replicas nicely...',
-      'Waking up the primary...',
-      'Counting rows in background...',
-      'Optimizing queries in my head...',
-      'Checking for runaway transactions...',
-      'Petitioning the binlogs...',
-      'Synchronizing brain cells...',
-      'Consulting the MySQL oracle...',
-      'Herding the clusters...',
-      'Decoding network packets...',
-      'Channeling database vibes...',
-      'Asking nicely for permission...',
-      'Negotiating with ProxySQL...',
-    ];
     let frameIndex = 0;
     let msgIndex = 0;
 
     spinnerInterval = setInterval(() => {
       const frame = spinnerFrames[frameIndex % spinnerFrames.length];
-      const msg = thinkingMessages[msgIndex % thinkingMessages.length];
+      const msg = ALL_THINKING_MESSAGES[msgIndex % ALL_THINKING_MESSAGES.length];
       // Clear line before writing to handle shorter messages after longer ones
       process.stdout.write(`\r\x1b[K${frame} ${msg}  ${theme.muted('(double tap ESC to stop)')}`);
       frameIndex++;
@@ -424,7 +490,7 @@ export class REPL {
         const content = fs.readFileSync(this.config.historyFile, 'utf-8');
         this.history = content.split('\n').filter(Boolean);
       }
-    } catch (error) {
+    } catch {
       // Ignore errors loading history
     }
   }
@@ -443,7 +509,7 @@ export class REPL {
         this.history.slice(-this.config.historySize).join('\n'),
         'utf-8'
       );
-    } catch (error) {
+    } catch {
       // Ignore errors saving history
     }
   }
@@ -453,8 +519,8 @@ export class REPL {
    */
   private addToHistory(command: string): void {
     this.history.push(command);
-    // Note: readline.Interface has history property but it's not in TypeScript types
-    // We manage history separately and sync on save
+    // Sync with raw input handler for history navigation
+    this.rawInputHandler?.setHistory(this.history);
   }
 }
 

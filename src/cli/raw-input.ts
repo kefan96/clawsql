@@ -54,6 +54,7 @@ function getAllCommandSuggestions(): Suggestion[] {
  */
 export class RawInputHandler {
   private buffer: string = '';
+  private cursorPos: number = 0; // Cursor position within buffer
   private filteredSuggestions: Suggestion[] = [];
   private selectedIndex: number = 0;
   private showingSuggestions: boolean = false;
@@ -65,11 +66,22 @@ export class RawInputHandler {
   private pasteTimeout: NodeJS.Timeout | null = null;
   private static readonly PASTE_TIMEOUT_MS = 5000; // 5 second timeout for bracketed paste
   private bracketedPasteSupported: boolean = false;
+  private history: string[] = []; // Command history
+  private historyIndex: number = -1; // Current position in history (-1 = not navigating)
+  private savedBuffer: string = ''; // Buffer saved before history navigation
 
-  constructor(prompt: string = 'clawsql ❯ ') {
+  constructor(prompt: string = 'clawsql ❯ ', history: string[] = []) {
     this.prompt = prompt;
     this.allCommands = getAllCommandSuggestions();
+    this.history = history;
     this.bracketedPasteSupported = this.enableBracketedPaste();
+  }
+
+  /**
+   * Update history array (called from REPL after command execution)
+   */
+  setHistory(history: string[]): void {
+    this.history = history;
   }
 
   /**
@@ -148,10 +160,13 @@ export class RawInputHandler {
 
       // Reset state
       this.buffer = '';
+      this.cursorPos = 0;
       this.filteredSuggestions = [];
       this.selectedIndex = 0;
       this.showingSuggestions = false;
       this.lastSuggestionLineCount = 0;
+      this.historyIndex = -1;
+      this.savedBuffer = '';
 
       // Show initial prompt
       this.render();
@@ -290,17 +305,71 @@ export class RawInputHandler {
     // Arrow keys
     if (data === '\x1B[A') { // Up
       if (this.showingSuggestions && this.filteredSuggestions.length > 0) {
+        // Navigate suggestions
         this.selectedIndex = Math.max(0, this.selectedIndex - 1);
         this.renderSuggestions();
+      } else if (this.history.length > 0) {
+        // History navigation
+        if (this.historyIndex === -1) {
+          // First time navigating - save current buffer
+          this.savedBuffer = this.buffer;
+        }
+        this.historyIndex = Math.min(this.history.length - 1, this.historyIndex + 1);
+        this.buffer = this.history[this.history.length - 1 - this.historyIndex];
+        this.cursorPos = this.buffer.length;
+        this.updateSuggestions();
+        this.render();
       }
       return {};
     }
 
     if (data === '\x1B[B') { // Down
       if (this.showingSuggestions && this.filteredSuggestions.length > 0) {
+        // Navigate suggestions
         this.selectedIndex = Math.min(this.filteredSuggestions.length - 1, this.selectedIndex + 1);
         this.renderSuggestions();
+      } else if (this.historyIndex > -1) {
+        // History navigation
+        this.historyIndex--;
+        if (this.historyIndex === -1) {
+          // Back to saved buffer
+          this.buffer = this.savedBuffer;
+        } else {
+          this.buffer = this.history[this.history.length - 1 - this.historyIndex];
+        }
+        this.cursorPos = this.buffer.length;
+        this.updateSuggestions();
+        this.render();
       }
+      return {};
+    }
+
+    if (data === '\x1B[D') { // Left arrow
+      if (this.cursorPos > 0) {
+        this.cursorPos--;
+        this.render();
+      }
+      return {};
+    }
+
+    if (data === '\x1B[C') { // Right arrow
+      if (this.cursorPos < this.buffer.length) {
+        this.cursorPos++;
+        this.render();
+      }
+      return {};
+    }
+
+    // Home/End keys (different terminal variants)
+    if (data === '\x1B[H' || data === '\x1B[1~' || data === '\x1B[7~' || data === '\x01') { // Home or Ctrl+A
+      this.cursorPos = 0;
+      this.render();
+      return {};
+    }
+
+    if (data === '\x1B[F' || data === '\x1B[4~' || data === '\x1B[8~' || data === '\x05') { // End or Ctrl+E
+      this.cursorPos = this.buffer.length;
+      this.render();
       return {};
     }
 
@@ -312,12 +381,15 @@ export class RawInputHandler {
 
         if (selected.isFlag) {
           // Flag completion - replace the last part
-          const parts = this.buffer.split(/\s+/);
+          const parts = this.buffer.slice(0, this.cursorPos).split(/\s+/);
           parts[parts.length - 1] = selected.name.split(' ')[0]; // Just the flag name
-          this.buffer = parts.join(' ') + ' ';
+          const beforeCursor = parts.join(' ') + ' ';
+          this.buffer = beforeCursor + this.buffer.slice(this.cursorPos);
+          this.cursorPos = beforeCursor.length;
         } else {
-          // Command completion
+          // Command completion - replace entire buffer
           this.buffer = '/' + selected.name + ' ';
+          this.cursorPos = this.buffer.length;
         }
 
         this.clearSuggestions();
@@ -342,9 +414,74 @@ export class RawInputHandler {
 
     // Backspace
     if (data === '\x7F' || data === '\x08') {
-      if (this.buffer.length > 0) {
-        this.buffer = this.buffer.slice(0, -1);
+      if (this.cursorPos > 0) {
+        this.buffer = this.buffer.slice(0, this.cursorPos - 1) + this.buffer.slice(this.cursorPos);
+        this.cursorPos--;
         this.updateSuggestions();
+        this.render();
+      }
+      return {};
+    }
+
+    // Delete key (Delete forward)
+    if (data === '\x1B[3~') {
+      if (this.cursorPos < this.buffer.length) {
+        this.buffer = this.buffer.slice(0, this.cursorPos) + this.buffer.slice(this.cursorPos + 1);
+        this.updateSuggestions();
+        this.render();
+      }
+      return {};
+    }
+
+    // Ctrl+L - Clear screen
+    if (data === '\x0C') {
+      process.stdout.write('\x1B[2J\x1B[0f');
+      this.render();
+      return {};
+    }
+
+    // Ctrl+K - Delete from cursor to end of line
+    if (data === '\x0B') {
+      this.buffer = this.buffer.slice(0, this.cursorPos);
+      this.updateSuggestions();
+      this.render();
+      return {};
+    }
+
+    // Ctrl+U - Delete from beginning to cursor
+    if (data === '\x15') {
+      this.buffer = this.buffer.slice(this.cursorPos);
+      this.cursorPos = 0;
+      this.updateSuggestions();
+      this.render();
+      return {};
+    }
+
+    // Ctrl+W - Delete word before cursor
+    if (data === '\x17') {
+      // Find the start of the word before cursor
+      let wordStart = this.cursorPos;
+      // Skip any trailing spaces
+      while (wordStart > 0 && this.buffer[wordStart - 1] === ' ') {
+        wordStart--;
+      }
+      // Find the start of the word
+      while (wordStart > 0 && this.buffer[wordStart - 1] !== ' ') {
+        wordStart--;
+      }
+      this.buffer = this.buffer.slice(0, wordStart) + this.buffer.slice(this.cursorPos);
+      this.cursorPos = wordStart;
+      this.updateSuggestions();
+      this.render();
+      return {};
+    }
+
+    // Ctrl+T - Transpose characters before cursor
+    if (data === '\x14') {
+      if (this.cursorPos >= 2) {
+        const chars = this.buffer.split('');
+        [chars[this.cursorPos - 2], chars[this.cursorPos - 1]] = [chars[this.cursorPos - 1], chars[this.cursorPos - 2]];
+        this.buffer = chars.join('');
         this.render();
       }
       return {};
@@ -363,7 +500,9 @@ export class RawInputHandler {
       // Filter out control characters and handle multi-character input
       const printableChars = data.split('').filter(c => c >= ' ' && c <= '~').join('');
       if (printableChars.length > 0) {
-        this.buffer += printableChars;
+        // Insert at cursor position
+        this.buffer = this.buffer.slice(0, this.cursorPos) + printableChars + this.buffer.slice(this.cursorPos);
+        this.cursorPos += printableChars.length;
         this.updateSuggestions();
         this.render();
       }
@@ -381,7 +520,9 @@ export class RawInputHandler {
     // Filter out control characters but keep the paste content
     const printableChars = content.split('').filter(c => c >= ' ' && c <= '~' || c === '\t').join('');
     if (printableChars.length > 0) {
-      this.buffer += printableChars;
+      // Insert at cursor position
+      this.buffer = this.buffer.slice(0, this.cursorPos) + printableChars + this.buffer.slice(this.cursorPos);
+      this.cursorPos += printableChars.length;
       this.updateSuggestions();
       this.render();
     }
@@ -443,6 +584,10 @@ export class RawInputHandler {
     // Clear current line and show prompt + buffer
     process.stdout.write('\x1B[2K\x1B[0G');
     process.stdout.write(this.prompt + this.buffer);
+
+    // Position cursor at correct column
+    const cursorCol = this.getVisiblePromptLength() + this.cursorPos;
+    process.stdout.write('\x1B[' + (cursorCol + 1) + 'G');
 
     // Show suggestions if applicable
     if (this.showingSuggestions) {
@@ -539,7 +684,7 @@ export class RawInputHandler {
 
     // Step 6: Redraw input line (prompt + buffer) and position cursor
     process.stdout.write(this.prompt + this.buffer);
-    const cursorCol = this.getVisiblePromptLength() + this.buffer.length + 1;
+    const cursorCol = this.getVisiblePromptLength() + this.cursorPos + 1;
     process.stdout.write('\x1B[' + cursorCol + 'G');
 
     // Update line count for next render
@@ -571,7 +716,7 @@ export class RawInputHandler {
 
     // Redraw input line and position cursor (using visible length)
     process.stdout.write(this.prompt + this.buffer);
-    const cursorCol = this.getVisiblePromptLength() + this.buffer.length + 1;
+    const cursorCol = this.getVisiblePromptLength() + this.cursorPos + 1;
     process.stdout.write('\x1B[' + cursorCol + 'G');
 
     if (resetCount) {

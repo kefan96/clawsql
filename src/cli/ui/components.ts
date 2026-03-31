@@ -259,14 +259,30 @@ export function createStatusBar(options: {
  */
 export function createKeybindingsHelp(): string {
   const lines: string[] = [
-    theme.muted('─'.repeat(40)),
+    theme.muted('─'.repeat(50)),
     theme.secondary('  Keyboard Shortcuts:'),
-    theme.muted('  Tab       ') + 'Auto-complete',
+    theme.muted('─'.repeat(50)),
+    theme.muted('  Navigation:'),
+    theme.muted('  ← →       ') + 'Move cursor',
+    theme.muted('  Home/End  ') + 'Jump to start/end of line',
+    theme.muted('  ↑ ↓       ') + 'History / suggestions navigation',
+    theme.muted('─'.repeat(50)),
+    theme.muted('  Editing:'),
+    theme.muted('  Ctrl+A    ') + 'Jump to beginning',
+    theme.muted('  Ctrl+E    ') + 'Jump to end',
+    theme.muted('  Ctrl+K    ') + 'Delete to end of line',
+    theme.muted('  Ctrl+U    ') + 'Delete to beginning',
+    theme.muted('  Ctrl+W    ') + 'Delete previous word',
+    theme.muted('  Ctrl+T    ') + 'Transpose characters',
+    theme.muted('─'.repeat(50)),
+    theme.muted('  Actions:'),
+    theme.muted('  Tab       ') + 'Accept suggestion',
+    theme.muted('  Enter     ') + 'Execute command',
     theme.muted('  Ctrl+L    ') + 'Clear screen',
     theme.muted('  Ctrl+C    ') + 'Cancel input',
-    theme.muted('  Ctrl+D    ') + 'Exit',
-    theme.muted('  Up/Down   ') + 'History navigation',
-    theme.muted('─'.repeat(40)),
+    theme.muted('  Ctrl+D    ') + 'Exit CLI',
+    theme.muted('  Esc       ') + 'Clear suggestions',
+    theme.muted('─'.repeat(50)),
   ];
 
   return lines.join('\n');
