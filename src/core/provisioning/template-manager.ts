@@ -12,6 +12,12 @@ import {
   createTopologyTemplate,
 } from '../../types/index.js';
 import { randomUUID } from 'crypto';
+import {
+  PREDEFINED_TEMPLATES,
+  createPredefinedTemplate,
+  isPredefinedTemplate,
+  PredefinedTemplateDefinition,
+} from './predefined-templates.js';
 
 const logger = getLogger('template-manager');
 
@@ -62,6 +68,7 @@ export interface HostSpec {
  */
 export class TemplateManager {
   private db = getDatabase();
+  private initialized = false;
 
   /**
    * List all templates
@@ -259,6 +266,118 @@ export class TemplateManager {
     }
 
     return { valid: true };
+  }
+
+  /**
+   * Initialize predefined templates
+   *
+   * Creates predefined benchmarking templates if they don't already exist.
+   * This is called during platform startup.
+   */
+  async initializePredefinedTemplates(): Promise<number> {
+    // Skip if already initialized
+    if (this.initialized) {
+      return 0;
+    }
+
+    // Batch check existing templates with a single query
+    const predefinedNames = PREDEFINED_TEMPLATES.map((t) => t.name);
+    const existingRows = await this.db.query<{ name: string }>(
+      `SELECT name FROM topology_templates WHERE name IN (${predefinedNames.map(() => '?').join(', ')})`,
+      predefinedNames
+    );
+    const existingNames = new Set(existingRows.map((r) => r.name));
+
+    let created = 0;
+    for (const definition of PREDEFINED_TEMPLATES) {
+      if (existingNames.has(definition.name)) {
+        continue;
+      }
+
+      const template = createPredefinedTemplate(definition);
+      await this.db.execute(
+        `INSERT INTO topology_templates
+         (template_id, name, description, primary_count, replica_count, replication_mode, settings)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          template.templateId,
+          template.name,
+          template.description ?? null,
+          template.primaryCount,
+          template.replicaCount,
+          template.replicationMode,
+          template.settings ? JSON.stringify(template.settings) : null,
+        ]
+      );
+
+      logger.info({ name: template.name, templateId: template.templateId }, 'Predefined template created');
+      created++;
+    }
+
+    this.initialized = true;
+
+    if (created > 0) {
+      logger.info({ count: created }, 'Predefined templates initialized');
+    }
+
+    return created;
+  }
+
+  /**
+   * Get predefined template definitions
+   *
+   * Returns the list of predefined template definitions with use cases.
+   */
+  getPredefinedTemplateDefinitions(): PredefinedTemplateDefinition[] {
+    return PREDEFINED_TEMPLATES;
+  }
+
+  /**
+   * Check if a template name is predefined
+   */
+  isPredefined(name: string): boolean {
+    return isPredefinedTemplate(name);
+  }
+
+  /**
+   * Get template or create predefined if name matches
+   *
+   * If the name matches a predefined template and it doesn't exist,
+   * it will be created automatically.
+   */
+  async getOrCreate(name: string): Promise<TopologyTemplate | null> {
+    // First try to get existing template
+    const existing = await this.get(name);
+    if (existing) {
+      return existing;
+    }
+
+    // Check if it's a predefined template
+    const definition = PREDEFINED_TEMPLATES.find((t) => t.name === name);
+    if (!definition) {
+      return null;
+    }
+
+    // Create only this one template directly
+    const template = createPredefinedTemplate(definition);
+    await this.db.execute(
+      `INSERT INTO topology_templates
+       (template_id, name, description, primary_count, replica_count, replication_mode, settings)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        template.templateId,
+        template.name,
+        template.description ?? null,
+        template.primaryCount,
+        template.replicaCount,
+        template.replicationMode,
+        template.settings ? JSON.stringify(template.settings) : null,
+      ]
+    );
+
+    logger.info({ name: template.name, templateId: template.templateId }, 'Predefined template created on demand');
+
+    return template;
   }
 
   /**

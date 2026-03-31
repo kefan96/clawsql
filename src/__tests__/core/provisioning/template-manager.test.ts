@@ -391,4 +391,118 @@ describe('TemplateManager', () => {
       expect(mockDb.get).not.toHaveBeenCalled();
     });
   });
+
+  describe('initializePredefinedTemplates', () => {
+    it('should skip if already initialized', async () => {
+      // First call initializes
+      mockDb.query.mockResolvedValue([]);
+      mockDb.execute.mockResolvedValue({ changes: 1, lastId: 1 });
+
+      await templateManager.initializePredefinedTemplates();
+      const firstCallCount = mockDb.execute.mock.calls.length;
+
+      // Second call should skip
+      await templateManager.initializePredefinedTemplates();
+      expect(mockDb.execute.mock.calls.length).toBe(firstCallCount);
+    });
+
+    it('should batch check existing templates with single query', async () => {
+      mockDb.query.mockResolvedValue([{ name: 'dev-single' }]);
+      mockDb.execute.mockResolvedValue({ changes: 1, lastId: 1 });
+
+      // Create a new instance to test fresh initialization
+      const freshManager = new TemplateManager();
+      await freshManager.initializePredefinedTemplates();
+
+      // Should have one query to check existing templates
+      expect(mockDb.query).toHaveBeenCalledWith(
+        expect.stringContaining('SELECT name FROM topology_templates WHERE name IN'),
+        expect.any(Array)
+      );
+    });
+
+    it('should not create templates that already exist', async () => {
+      // Mock that ALL predefined templates already exist
+      mockDb.query.mockResolvedValue([
+        { name: 'dev-single' },
+        { name: 'dev-replica' },
+        { name: 'standard' },
+        { name: 'ha-semisync' },
+        { name: 'read-heavy' },
+        { name: 'production-ha' },
+        { name: 'geo-distributed' },
+      ]);
+      mockDb.execute.mockResolvedValue({ changes: 1, lastId: 1 });
+
+      const freshManager = new TemplateManager();
+      const created = await freshManager.initializePredefinedTemplates();
+
+      // Should not insert any templates since all predefined ones exist
+      expect(mockDb.execute).not.toHaveBeenCalled();
+      expect(created).toBe(0);
+    });
+  });
+
+  describe('getOrCreate', () => {
+    it('should return existing template', async () => {
+      mockDb.get.mockResolvedValue({
+        template_id: 'test-id',
+        name: 'standard',
+        description: 'Test',
+        primary_count: 1,
+        replica_count: 2,
+        replication_mode: 'async',
+        settings: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      });
+
+      const result = await templateManager.getOrCreate('standard');
+
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe('standard');
+      expect(mockDb.execute).not.toHaveBeenCalled(); // Should not create new
+    });
+
+    it('should create predefined template if not exists', async () => {
+      mockDb.get.mockResolvedValue(undefined); // Template not found
+      mockDb.execute.mockResolvedValue({ changes: 1, lastId: 1 });
+
+      const result = await templateManager.getOrCreate('standard');
+
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe('standard');
+      expect(mockDb.execute).toHaveBeenCalled(); // Should create new
+    });
+
+    it('should return null for non-predefined template that does not exist', async () => {
+      mockDb.get.mockResolvedValue(undefined);
+
+      const result = await templateManager.getOrCreate('custom-template');
+
+      expect(result).toBeNull();
+      expect(mockDb.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('isPredefined', () => {
+    it('should return true for predefined template names', () => {
+      expect(templateManager.isPredefined('dev-single')).toBe(true);
+      expect(templateManager.isPredefined('standard')).toBe(true);
+      expect(templateManager.isPredefined('production-ha')).toBe(true);
+    });
+
+    it('should return false for custom template names', () => {
+      expect(templateManager.isPredefined('my-custom')).toBe(false);
+      expect(templateManager.isPredefined('random-name')).toBe(false);
+    });
+  });
+
+  describe('getPredefinedTemplateDefinitions', () => {
+    it('should return all predefined template definitions', () => {
+      const definitions = templateManager.getPredefinedTemplateDefinitions();
+      expect(definitions.length).toBeGreaterThan(0);
+      expect(definitions.find((d) => d.name === 'standard')).toBeDefined();
+    });
+  });
 });

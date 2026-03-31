@@ -76,7 +76,7 @@ describe('clustersCommand', () => {
 
   it('should have correct name and description', () => {
     expect(clustersCommand.name).toBe('clusters');
-    expect(clustersCommand.description).toBe('List and manage MySQL clusters');
+    expect(clustersCommand.description).toBe('Manage MySQL clusters (provisioning-first approach)');
   });
 
   it('should default to list when no subcommand', async () => {

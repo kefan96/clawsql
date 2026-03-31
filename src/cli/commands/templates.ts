@@ -4,7 +4,7 @@
  * Manage topology templates for cluster provisioning.
  */
 
-import { getTemplateManager, getClusterProvisioner } from '../../core/provisioning/index.js';
+import { getTemplateManager, getClusterProvisioner, PREDEFINED_TEMPLATES, isPredefinedTemplate } from '../../core/provisioning/index.js';
 import { ReplicationMode } from '../../types/index.js';
 import { CLIContext, Command } from '../registry.js';
 import { parseStringArg, getErrorMessage } from '../utils/args.js';
@@ -44,7 +44,7 @@ export const templatesCommand: Command = {
 };
 
 /**
- * List all templates
+ * List all templates (including predefined ones)
  */
 async function handleList(_args: string[], ctx: CLIContext): Promise<void> {
   const templateManager = getTemplateManager();
@@ -53,28 +53,43 @@ async function handleList(_args: string[], ctx: CLIContext): Promise<void> {
     const templates = await templateManager.list();
 
     if (ctx.outputFormat === 'json') {
-      console.log(JSON.stringify({ templates }, null, 2));
-      return;
-    }
-
-    if (templates.length === 0) {
-      console.log(ctx.formatter.info('No templates found. Create one with: /templates create --name <name>'));
+      console.log(JSON.stringify({ templates, predefined: PREDEFINED_TEMPLATES }, null, 2));
       return;
     }
 
     console.log(ctx.formatter.header('Topology Templates'));
     console.log();
 
-    for (const template of templates) {
-      console.log(ctx.formatter.keyValue('Name', template.name));
-      console.log(ctx.formatter.keyValue('  ID', template.templateId));
-      if (template.description) {
-        console.log(ctx.formatter.keyValue('  Description', template.description));
-      }
-      console.log(ctx.formatter.keyValue('  Primary/Replica', `${template.primaryCount}/${template.replicaCount}`));
-      console.log(ctx.formatter.keyValue('  Replication', template.replicationMode));
+    // Show predefined templates first
+    console.log(ctx.formatter.info('Predefined Templates (ready to use):'));
+    const existingNames = new Set(templates.map((t) => t.name));
+    console.log(ctx.formatter.predefinedTemplatesTable(PREDEFINED_TEMPLATES, existingNames));
+
+    // Show custom templates (user-created)
+    const customTemplates = templates.filter(
+      (t) => !isPredefinedTemplate(t.name)
+    );
+
+    if (customTemplates.length > 0) {
       console.log();
+      console.log(ctx.formatter.info('Custom Templates:'));
+      for (const template of customTemplates) {
+        console.log(ctx.formatter.keyValue('Name', template.name));
+        console.log(ctx.formatter.keyValue('  ID', template.templateId));
+        if (template.description) {
+          console.log(ctx.formatter.keyValue('  Description', template.description));
+        }
+        console.log(ctx.formatter.keyValue('  Primary/Replica', `${template.primaryCount}/${template.replicaCount}`));
+        console.log(ctx.formatter.keyValue('  Replication', template.replicationMode));
+        console.log();
+      }
+    } else {
+      console.log();
+      console.log(ctx.formatter.info('No custom templates. Create one with: /templates create --name <name>'));
     }
+
+    console.log();
+    console.log(ctx.formatter.info('Provision a cluster: /clusters provision --template <name>'));
   } catch (error) {
     console.log(ctx.formatter.error(`Failed to list templates: ${getErrorMessage(error)}`));
   }

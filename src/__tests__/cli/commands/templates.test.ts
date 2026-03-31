@@ -56,12 +56,15 @@ describe('templates command', () => {
   });
 
   describe('list', () => {
-    it('should show no templates message when empty', async () => {
+    it('should show predefined templates when empty', async () => {
       mockTemplateManager.list.mockResolvedValue([]);
 
       await templatesCommand.handler(['list'], mockCtx);
 
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('No templates found'));
+      // Now shows predefined templates table and message about no custom templates
+      expect(mockTemplateManager.list).toHaveBeenCalled();
+      expect(mockCtx.formatter.header).toHaveBeenCalledWith('Topology Templates');
+      expect(mockCtx.formatter.info).toHaveBeenCalledWith('Predefined Templates (ready to use):');
     });
 
     it('should list templates', async () => {

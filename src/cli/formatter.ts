@@ -351,6 +351,33 @@ export class Formatter {
   }
 
   /**
+   * Format predefined templates as a table
+   *
+   * @param templates - Predefined template definitions
+   * @param existingNames - Set of template names that already exist in DB
+   */
+  predefinedTemplatesTable(
+    templates: Array<{ name: string; primaryCount: number; replicaCount: number; replicationMode: string; useCase: string }>,
+    existingNames: Set<string>
+  ): string {
+    const tableData: PredefinedTemplateDisplay[] = templates.map((def) => ({
+      name: def.name,
+      nodes: `${def.primaryCount + def.replicaCount}`,
+      mode: def.replicationMode,
+      useCase: def.useCase.length > 38 ? def.useCase.substring(0, 35) + '...' : def.useCase,
+      status: existingNames.has(def.name) ? 'ready' : 'available',
+    }));
+
+    return this.table(tableData, [
+      { key: 'name', header: 'Template', width: 16 },
+      { key: 'nodes', header: 'Nodes', width: 6 },
+      { key: 'mode', header: 'Mode', width: 12 },
+      { key: 'useCase', header: 'Use Case', width: 41 },
+      { key: 'status', header: 'Status', width: 10 },
+    ]);
+  }
+
+  /**
    * Convert markdown to terminal-formatted text
    */
   markdown(text: string): string {
@@ -512,6 +539,18 @@ export interface ClusterTopologyData {
   replicas: ClusterInstanceInfo[];
   health: string;
   syncWarnings?: SyncWarningDisplay[];
+}
+
+/**
+ * Predefined template definition for display
+ */
+export interface PredefinedTemplateDisplay {
+  name: string;
+  nodes: string;
+  mode: string;
+  useCase: string;
+  status: string;
+  [key: string]: unknown;
 }
 
 /**

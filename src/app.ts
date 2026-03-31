@@ -16,6 +16,7 @@ import { getSettings } from './config/settings.js';
 import { setupLogger } from './utils/logger.js';
 import { initDatabase } from './utils/database.js';
 import { ClawSQLError } from './utils/exceptions.js';
+import { getTemplateManager } from './core/provisioning/index.js';
 
 // Import routes
 import instancesRoutes from './api/routes/instances.js';
@@ -177,6 +178,17 @@ export async function startServer() {
   // Initialize database
   try {
     await initDatabase();
+
+    // Initialize predefined templates for cluster provisioning
+    try {
+      const templateManager = getTemplateManager();
+      const templatesCreated = await templateManager.initializePredefinedTemplates();
+      if (templatesCreated > 0) {
+        fastify.log.info(`Initialized ${templatesCreated} predefined templates`);
+      }
+    } catch (error) {
+      fastify.log.warn({ error }, 'Failed to initialize predefined templates, continuing with existing templates');
+    }
   } catch (error) {
     fastify.log.warn({ error }, 'Failed to initialize database, continuing without persistence');
   }

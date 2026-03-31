@@ -19,10 +19,6 @@ clawsql install --demo
 ### Starting the Platform
 
 ```bash
-# Using CLI
-clawsql -c "/start --demo"
-
-# Or interactively
 clawsql
 > /start --demo
 ```
@@ -30,6 +26,21 @@ clawsql
 This starts:
 - ClawSQL platform (API, Orchestrator, ProxySQL, Prometheus, Grafana)
 - Demo MySQL cluster (1 primary + 2 replicas)
+
+### Provision the Demo Cluster
+
+After starting, use your host IP (shown in startup output) to provision the demo cluster:
+
+```bash
+# Replace <host-ip> with your actual host IP
+> /clusters quick standard demo <host-ip>:3306,<host-ip>:3307,<host-ip>:3308
+Cluster "demo" ready at port 6033
+```
+
+That's it! The cluster is now ready with:
+- GTID-based replication configured
+- ProxySQL routing on port 6033
+- Read/write splitting enabled
 
 ## Accessing Services
 
@@ -41,41 +52,21 @@ This starts:
 | Prometheus | http://localhost:9090 | - |
 | Orchestrator | http://localhost:3000 | - |
 | ProxySQL Admin | localhost:6032 | admin/admin |
+| ProxySQL MySQL | localhost:6033 | clawsql/clawsql_password |
 | OpenClaw Gateway | ws://localhost:18789 | - |
 | OpenClaw UI | http://localhost:18790 | - |
-| **Demo MySQL** (host networking) | | |
-| Primary | `<host-ip>:3306` | clawsql/clawsql_password |
-| Replica 1 | `<host-ip>:3307` | clawsql/clawsql_password |
-| Replica 2 | `<host-ip>:3308` | clawsql/clawsql_password |
 
-> **Note:** Replace `<host-ip>` with your actual host IP (shown in startup output).
+### Demo MySQL Cluster
+
+| Instance | Port | Credentials |
+|----------|------|-------------|
+| Primary | 3306 | clawsql/clawsql_password |
+| Replica 1 | 3307 | clawsql/clawsql_password |
+| Replica 2 | 3308 | clawsql/clawsql_password |
 
 ## Demo Scenarios
 
-### 0. Register Instances and Set Up Replication
-
-After starting with `--demo`, register the MySQL instances using your host IP:
-
-```bash
-# Get your host IP from the startup output
-HOST_IP=<your-host-ip>
-
-# Register instances
-clawsql -c "/instances register ${HOST_IP} 3306"
-clawsql -c "/instances register ${HOST_IP} 3307"
-clawsql -c "/instances register ${HOST_IP} 3308"
-
-# Set up replication (creates repl user automatically)
-clawsql -c "/instances setup-replication --host ${HOST_IP}:3307 --master ${HOST_IP}:3306"
-clawsql -c "/instances setup-replication --host ${HOST_IP}:3308 --master ${HOST_IP}:3306"
-
-# Verify topology
-clawsql -c "/clusters topology"
-```
-
 ### 1. Using the CLI
-
-The ClawSQL CLI provides an interactive way to manage your clusters:
 
 ```bash
 # Check platform status
@@ -84,63 +75,95 @@ clawsql -c "/status"
 # Run diagnostics
 clawsql -c "/doctor"
 
-# List discovered instances
-clawsql -c "/instances list"
-
 # View cluster topology
 clawsql -c "/clusters topology"
 
-# Sync cluster to ProxySQL
-clawsql -c "/clusters sync"
+# List available templates
+clawsql -c "/clusters provision"
 ```
 
-### 2. Instance Discovery
+### 2. Template-Based Provisioning
 
-Discover MySQL instances in the demo network:
+Create additional clusters from predefined templates:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/instances/discover \
-  -H "Content-Type: application/json" \
-  -d '{
-    "network_segments": ["172.18.0.0/24"],
-    "port_range": [3306, 3306]
-  }'
+# View all templates
+> /clusters provision
+
+# Provision different cluster types
+> /clusters quick dev-single testdb <host-ip>:3306
+> /clusters quick ha-semisync production <host-ip>:3306,<host-ip>:3307,<host-ip>:3308
 ```
 
-### 3. View Cluster Topology
-
-```bash
-# List clusters
-curl http://localhost:8080/api/v1/clusters
-
-# Get topology
-curl http://localhost:8080/api/v1/clusters/demo-cluster/topology
-```
-
-### 4. Health Monitoring
-
-```bash
-# System health
-curl http://localhost:8080/api/v1/monitoring/health
-
-# Active alerts
-curl http://localhost:8080/api/v1/monitoring/alerts
-```
-
-### 5. Connect via ProxySQL
+### 3. Connect via ProxySQL
 
 ```bash
 # Connect through ProxySQL (read/write split automatic)
 mysql -h 127.0.0.1 -P 6033 -u clawsql -pclawsql_password
 
-# Run a query - routed to replica (reader hostgroup)
-mysql> SELECT * FROM testdb.users;
+# Create a test database
+mysql> CREATE DATABASE testdb;
+mysql> USE testdb;
+mysql> CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100));
 
-# Run a write - routed to primary (writer hostgroup)
-mysql> INSERT INTO testdb.users (name, email) VALUES ('Dave', 'dave@example.com');
+# Write queries go to primary
+mysql> INSERT INTO users (name) VALUES ('Alice'), ('Bob');
+
+# Read queries are distributed to replicas
+mysql> SELECT * FROM users;
 ```
 
-### 6. Load Testing (Optional)
+### 4. View Cluster Topology
+
+```bash
+> /clusters topology --name demo
+```
+
+### 5. Failover Simulation
+
+```bash
+# Run failover simulation
+./scripts/simulate_failover.sh
+```
+
+This will:
+1. Show current cluster state
+2. Stop the primary MySQL
+3. Execute failover to a replica
+4. Recover the failed primary
+5. Verify final state
+
+### 6. Manual Failover
+
+```bash
+# View failover candidates
+> /failover status
+
+# Planned switchover
+> /failover switchover demo
+
+# View history
+> /failover history
+```
+
+### 7. Using the AI Agent
+
+OpenClaw starts automatically with the platform:
+
+```
+clawsql> show me the cluster topology
+clawsql> what's the replication lag?
+clawsql> help me troubleshoot replication issues
+```
+
+### 8. Using Grafana
+
+1. Open http://localhost:3001
+2. Login with admin/admin
+3. Prometheus data source is pre-configured
+4. Import MySQL dashboards or create custom ones
+
+### 9. Load Testing (Optional)
 
 If you have SysBench installed:
 
@@ -158,74 +181,33 @@ mysql -h 127.0.0.1 -P 6032 -u admin -padmin -e "SELECT * FROM stats_mysql_query_
 ./scripts/load_data.sh cleanup
 ```
 
-### 7. Failover Simulation
+## Provisioning Examples
+
+### Create a HA Cluster
 
 ```bash
-# Run failover simulation
-./scripts/simulate_failover.sh
+> /clusters provision --template ha-semisync --cluster ha-demo --hosts <host-ip>:3306,<host-ip>:3307,<host-ip>:3308
 ```
 
-This will:
-1. Show current cluster state
-2. Stop the primary MySQL
-3. Execute failover to a replica
-4. Recover the failed primary
-5. Verify final state
-
-### 8. Manual Failover
+### Create a Read-Heavy Cluster
 
 ```bash
-# Get failover candidates
-curl http://localhost:8080/api/v1/failover/candidates/demo-cluster
-
-# Execute manual failover
-curl -X POST http://localhost:8080/api/v1/failover/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "cluster_id": "demo-cluster",
-    "target_instance_id": "mysql-replica-1:3306",
-    "reason": "Testing manual failover",
-    "auto_confirm": true
-  }'
-
-# View failover history
-curl http://localhost:8080/api/v1/failover/history
+> /clusters provision --template read-heavy --cluster analytics --hosts db1:3306,db2:3306,db3:3306,db4:3306,db5:3306
 ```
 
-## Using the AI Agent
+### List and Manage Clusters
 
-OpenClaw starts automatically with the platform. Use natural language commands:
-
+```bash
+> /clusters list
+> /clusters topology
+> /clusters deprovision demo --force
 ```
-clawsql> show me the cluster topology
-clawsql> what's the replication lag?
-clawsql> help me troubleshoot replication issues
-```
-
-### Demo Scenarios
-
-```
-clawsql> what is the status of my cluster?
-clawsql> how do I add a new replica?
-clawsql> why might a replica have high lag?
-clawsql> what does ProxySQL do?
-```
-
-See **[AI Integration](AI.md)** for setup and configuration details.
-
-## Using Grafana
-
-1. Open http://localhost:3001
-2. Login with admin/admin
-3. Prometheus data source is pre-configured
-4. Import MySQL dashboards or create custom ones
 
 ## Troubleshooting
 
 ### Check MySQL Replication
 
 ```bash
-# On replica
 docker exec mysql-replica-1 mysql -uroot -prootpassword -e "SHOW SLAVE STATUS\G"
 ```
 
@@ -238,16 +220,23 @@ docker exec mysql-replica-1 mysql -uroot -prootpassword -e "STOP SLAVE; START SL
 ### View Logs
 
 ```bash
-docker-compose logs -f clawsql
+docker compose logs -f clawsql
 docker logs openclaw
+```
+
+### Platform Issues
+
+```bash
+> /doctor
 ```
 
 ## Cleanup
 
 ```bash
 # Stop all services
-./start.sh --stop
+> /stop
 
 # Remove all data
-docker-compose down -v
+> /cleanup
+docker compose down -v
 ```

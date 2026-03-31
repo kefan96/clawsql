@@ -1,12 +1,11 @@
 /**
  * ClawSQL CLI - Clusters Command
  *
- * Manage MySQL clusters.
+ * Manage MySQL clusters with template-based provisioning as the primary approach.
  */
 
 import { Command, CLIContext } from '../registry.js';
-import { getClusterProvisioner } from '../../core/provisioning/cluster-provisioner.js';
-import { getTemplateManager } from '../../core/provisioning/template-manager.js';
+import { getClusterProvisioner, getTemplateManager, PREDEFINED_TEMPLATES } from '../../core/provisioning/index.js';
 import { parseStringArg, parseHostPort, getErrorMessage } from '../utils/args.js';
 
 /**
@@ -14,8 +13,8 @@ import { parseStringArg, parseHostPort, getErrorMessage } from '../utils/args.js
  */
 export const clustersCommand: Command = {
   name: 'clusters',
-  description: 'List and manage MySQL clusters',
-  usage: '/clusters <list|create|import|topology|add-replica|remove-replica|promote|sync|provision|deprovision> [args...]',
+  description: 'Manage MySQL clusters (provisioning-first approach)',
+  usage: '/clusters [list|provision|deprovision|manual] [args...]',
   handler: async (args: string[], ctx: CLIContext) => {
     const formatter = ctx.formatter;
 
@@ -30,39 +29,93 @@ export const clustersCommand: Command = {
       case 'list':
         await listClusters(ctx);
         break;
-      case 'sync':
-        await syncCluster(args.slice(1), ctx);
-        break;
-      case 'create':
-        await createCluster(args.slice(1), ctx);
-        break;
-      case 'import':
-        await importCluster(args.slice(1), ctx);
-        break;
-      case 'topology':
-        await showTopology(args.slice(1), ctx);
-        break;
-      case 'add-replica':
-        await addReplica(args.slice(1), ctx);
-        break;
-      case 'remove-replica':
-        await removeReplica(args.slice(1), ctx);
-        break;
-      case 'promote':
-        await promoteReplica(args.slice(1), ctx);
-        break;
       case 'provision':
         await provisionCluster(args.slice(1), ctx);
         break;
       case 'deprovision':
         await deprovisionCluster(args.slice(1), ctx);
         break;
+      case 'manual':
+        await handleManualSubcommand(args.slice(1), ctx);
+        break;
+      case 'quick':
+        await quickProvision(args.slice(1), ctx);
+        break;
+      // Legacy aliases (deprecated, redirect to manual subcommands)
+      case 'create':
+        console.log(formatter.warning('Note: /clusters create is deprecated. Use /clusters manual create for manual setup.'));
+        await createCluster(args.slice(1), ctx);
+        break;
+      case 'import':
+        console.log(formatter.warning('Note: /clusters import is deprecated. Use /clusters manual import for manual import.'));
+        await importCluster(args.slice(1), ctx);
+        break;
+      case 'sync':
+        console.log(formatter.warning('Note: /clusters sync is deprecated. Use /clusters manual sync.'));
+        await syncCluster(args.slice(1), ctx);
+        break;
+      case 'topology':
+        await showTopology(args.slice(1), ctx);
+        break;
+      case 'add-replica':
+        console.log(formatter.warning('Note: /clusters add-replica is deprecated. Use /clusters manual add-replica.'));
+        await addReplica(args.slice(1), ctx);
+        break;
+      case 'remove-replica':
+        console.log(formatter.warning('Note: /clusters remove-replica is deprecated. Use /clusters manual remove-replica.'));
+        await removeReplica(args.slice(1), ctx);
+        break;
+      case 'promote':
+        console.log(formatter.warning('Note: /clusters promote is deprecated. Use /clusters manual promote.'));
+        await promoteReplica(args.slice(1), ctx);
+        break;
       default:
         console.log(formatter.error(`Unknown subcommand: ${subcommand}`));
-        console.log(formatter.info('Available: list, create, import, topology, add-replica, remove-replica, promote, sync, provision, deprovision'));
+        console.log(formatter.info('Primary commands: list, provision, quick, deprovision'));
+        console.log(formatter.info('Manual commands: manual create, manual import, manual sync'));
     }
   },
 };
+
+/**
+ * Handle manual subcommands
+ */
+async function handleManualSubcommand(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const manualCmd = args[0]?.toLowerCase();
+
+  switch (manualCmd) {
+    case 'create':
+      await createCluster(args.slice(1), ctx);
+      break;
+    case 'import':
+      await importCluster(args.slice(1), ctx);
+      break;
+    case 'sync':
+      await syncCluster(args.slice(1), ctx);
+      break;
+    case 'add-replica':
+      await addReplica(args.slice(1), ctx);
+      break;
+    case 'remove-replica':
+      await removeReplica(args.slice(1), ctx);
+      break;
+    case 'promote':
+      await promoteReplica(args.slice(1), ctx);
+      break;
+    default:
+      if (manualCmd) {
+        console.log(formatter.error(`Unknown manual subcommand: ${manualCmd}`));
+      }
+      console.log(formatter.header('Manual Cluster Operations'));
+      console.log(formatter.info('  /clusters manual create --name <n> --primary <h:p> [--replicas <h:p,...>]'));
+      console.log(formatter.info('  /clusters manual import --primary <h:p>'));
+      console.log(formatter.info('  /clusters manual sync [--name <cluster>]'));
+      console.log(formatter.info('  /clusters manual promote --name <cluster> --host <h:p>'));
+      console.log(formatter.info('  /clusters manual add-replica --name <cluster> --host <h:p>'));
+      console.log(formatter.info('  /clusters manual remove-replica --name <cluster> --host <h:p>'));
+  }
+}
 
 /**
  * List all clusters
@@ -513,19 +566,34 @@ async function syncCluster(args: string[], ctx: CLIContext): Promise<void> {
 
 /**
  * Provision a cluster from a template
+ *
+ * This is the PRIMARY method for creating clusters.
+ * Templates provide predefined configurations for common use cases.
  */
 async function provisionCluster(args: string[], ctx: CLIContext): Promise<void> {
   const formatter = ctx.formatter;
+  const templateManager = getTemplateManager();
+
+  // If no arguments, show interactive template selection
+  if (args.length === 0) {
+    await showTemplateSelection(ctx);
+    return;
+  }
 
   const templateName = parseStringArg(args, '--template');
   const clusterName = parseStringArg(args, '--cluster');
   const hostsStr = parseStringArg(args, '--hosts');
 
   if (!templateName || !clusterName || !hostsStr) {
-    console.log(formatter.error('Missing required arguments. Usage: /clusters provision --template <name> --cluster <name> --hosts <h:p,h:p,...>'));
-    console.log(formatter.info('  --template <name>    Template name (create with /templates create)'));
-    console.log(formatter.info('  --cluster <name>     Cluster name (unique identifier)'));
-    console.log(formatter.info('  --hosts <h:p,...>    Comma-separated host:port list (first becomes primary)'));
+    console.log(formatter.header('Cluster Provisioning'));
+    console.log(formatter.info('Provision a cluster from a predefined template.'));
+    console.log();
+    console.log(formatter.keyValue('Usage', '/clusters provision --template <name> --cluster <name> --hosts <h:p,...>'));
+    console.log(formatter.keyValue('       ', '/clusters provision                    (interactive mode)'));
+    console.log(formatter.keyValue('       ', '/clusters quick <template> <hosts>     (quick provisioning)'));
+    console.log();
+    console.log(formatter.header('Predefined Templates'));
+    await showPredefinedTemplates(ctx);
     return;
   }
 
@@ -538,12 +606,14 @@ async function provisionCluster(args: string[], ctx: CLIContext): Promise<void> 
   console.log(formatter.keyValue('Hosts', hosts.map((h) => `${h.host}:${h.port}`).join(', ')));
   console.log();
 
-  // Verify template exists
-  const templateManager = getTemplateManager();
-  const template = await templateManager.get(templateName);
+  // Get or create template (auto-creates predefined templates)
+  const template = await templateManager.getOrCreate(templateName);
   if (!template) {
     console.log(formatter.error(`Template "${templateName}" not found`));
-    console.log(formatter.info('List available templates with: /templates list'));
+    console.log(formatter.info('Available predefined templates:'));
+    for (const def of PREDEFINED_TEMPLATES) {
+      console.log(formatter.keyValue(`  ${def.name}`, `${def.primaryCount + def.replicaCount} instances - ${def.useCase}`));
+    }
     return;
   }
 
@@ -576,6 +646,96 @@ async function provisionCluster(args: string[], ctx: CLIContext): Promise<void> 
   } catch (error) {
     console.log(formatter.error(`Provisioning failed: ${getErrorMessage(error)}`));
   }
+}
+
+/**
+ * Quick provisioning with minimal arguments
+ *
+ * Usage: /clusters quick <template> <cluster> <h:p,h:p,...>
+ */
+async function quickProvision(args: string[], ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const templateManager = getTemplateManager();
+
+  if (args.length < 3) {
+    console.log(formatter.header('Quick Cluster Provisioning'));
+    console.log(formatter.info('Quickly provision a cluster from a predefined template.'));
+    console.log();
+    console.log(formatter.keyValue('Usage', '/clusters quick <template> <cluster> <h:p,h:p,...>'));
+    console.log();
+    console.log(formatter.header('Available Templates'));
+    for (const def of PREDEFINED_TEMPLATES) {
+      console.log(formatter.keyValue(`  ${def.name}`, `${def.primaryCount + def.replicaCount} nodes - ${def.description}`));
+    }
+    return;
+  }
+
+  const templateName = args[0];
+  const clusterName = args[1];
+  const hostsStr = args[2];
+
+  // Parse hosts
+  const hosts = hostsStr.split(',').map((h) => parseHostPort(h.trim()));
+
+  // Validate template exists
+  const template = await templateManager.getOrCreate(templateName);
+  if (!template) {
+    console.log(formatter.error(`Unknown template: ${templateName}`));
+    console.log(formatter.info('Run /clusters quick to see available templates'));
+    return;
+  }
+
+  // Validate host count
+  const validation = await templateManager.validateHosts(template, hosts);
+  if (!validation.valid) {
+    console.log(formatter.error(validation.error || 'Invalid hosts'));
+    console.log(formatter.info(`Template "${templateName}" requires ${template.primaryCount + template.replicaCount} instances`));
+    return;
+  }
+
+  console.log(formatter.info(`Provisioning "${clusterName}" from template "${templateName}"...`));
+
+  try {
+    const provisioner = getClusterProvisioner();
+    const result = await provisioner.provision(templateName, clusterName, hosts);
+
+    if (result.success) {
+      console.log(formatter.success(`Cluster "${clusterName}" ready at port ${result.assignedPort}`));
+    } else {
+      console.log(formatter.error(result.error || 'Provisioning failed'));
+    }
+  } catch (error) {
+    console.log(formatter.error(getErrorMessage(error)));
+  }
+}
+
+/**
+ * Show interactive template selection
+ */
+async function showTemplateSelection(ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+
+  console.log(formatter.header('Cluster Provisioning'));
+  console.log(formatter.info('Provision a MySQL cluster from a predefined template.'));
+  console.log();
+  console.log(formatter.header('Available Templates'));
+  await showPredefinedTemplates(ctx);
+  console.log();
+  console.log(formatter.info('Usage: /clusters provision --template <name> --cluster <name> --hosts <h:p,...>'));
+  console.log(formatter.info('Quick:  /clusters quick <template> <cluster> <h:p,...>'));
+}
+
+/**
+ * Show predefined templates table
+ */
+async function showPredefinedTemplates(ctx: CLIContext): Promise<void> {
+  const formatter = ctx.formatter;
+  const templateManager = getTemplateManager();
+
+  const existingTemplates = await templateManager.list();
+  const existingNames = new Set(existingTemplates.map((t) => t.name));
+
+  console.log(formatter.predefinedTemplatesTable(PREDEFINED_TEMPLATES, existingNames));
 }
 
 /**

@@ -8,8 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm install -g clawsql
-clawsql install --demo    # Pull Docker images (one-time setup)
-clawsql -c "/start --demo"
+clawsql install           # Pull Docker images (one-time setup)
+clawsql
+> /start
 ```
 
 ### From Source (For Development)
@@ -26,102 +27,95 @@ node dist/bin/clawsql.js
 
 ```bash
 # Using the CLI
-clawsql install --demo   # Pull images first (one-time)
+clawsql install           # Pull images first (one-time)
 clawsql
-> /start --demo     # Start with demo MySQL cluster
-> /start            # Start platform (bring your own MySQL)
-> /stop             # Stop services
+> /start                  # Start platform
+> /clusters provision     # Provision a cluster interactively
+> /stop                   # Stop services
 ```
 
 ## Development Commands
 
 ```bash
-# Install dependencies
-npm install
-
-# Build TypeScript
-npm run build
-
-# Run CLI locally
-node dist/bin/clawsql.js
-
-# Run tests
-npm test
-
-# Run tests with coverage
-npm run test:coverage
-
-# Development mode with watcher
-npm run dev
-
-# Lint
-npm run lint
-
-# Format
-npm run format
-
-# Create npm package
-npm pack
-
-# Publish to npm (requires auth)
-npm publish
+npm install               # Install dependencies
+npm run build             # Build TypeScript
+npm test                  # Run tests
+npm run test:coverage     # Run tests with coverage
+npm run dev               # Development mode with watcher
+npm run lint              # Lint
+npm run format            # Format
 ```
 
 ## CLI Commands
 
-The ClawSQL CLI provides interactive management of MySQL clusters.
-
 ### Platform Lifecycle
 
 ```bash
-/install [--demo]     # Pull Docker images (required before first start)
-                      # --demo: Include MySQL demo cluster images
-                      # --detail: Show verbose output
-
-/start [--demo]       # Start ClawSQL platform
-                      # --demo: Start with demo MySQL cluster
-                      # --pull: Force pull missing images
-
-/stop                 # Stop all services
-/status               # Show platform status (images, containers, services)
-/cleanup              # Remove all containers and data
-/doctor             # Run diagnostics and suggest fixes
+/install [--demo]         # Pull Docker images (required before first start)
+/start [--demo]           # Start ClawSQL platform
+/stop                     # Stop all services
+/status                   # Show platform status
+/cleanup                  # Remove all containers and data
+/doctor                   # Run diagnostics and suggest fixes
 ```
 
 ### Configuration
 
 ```bash
-/config show                    # Display current configuration
-/config init                    # Interactive configuration wizard
-/config set <key> <value>       # Set configuration value
-/config get <key>               # Get configuration value
+/config show              # Display current configuration
+/config init              # Interactive configuration wizard
+/config set <key> <value> # Set configuration value
+/config get <key>         # Get configuration value
 ```
 
 Available keys: `mysql.admin_user`, `mysql.admin_password`, `mysql.repl_user`, `mysql.repl_password`, `orchestrator.url`, `proxysql.host`, `proxysql.admin_port`, `failover.auto_enabled`, `log.level`
 
-### Instance Management
+### Cluster Provisioning (Primary Method)
+
+ClawSQL uses a **provisioning-first approach** - create clusters from predefined templates:
 
 ```bash
-/instances list                           # List discovered instances
-/instances discover <network> [options]   # Scan network for MySQL
-/instances register --host <host> [opts]  # Register instance manually
-/instances remove --host <host>           # Remove instance
+# Interactive mode
+/clusters provision
+
+# Provision with template
+/clusters provision --template <name> --cluster <name> --hosts <h:p,...>
+
+# Quick provisioning
+/clusters quick <template> <cluster> <h:p,...>
+
+# Deprovision
+/clusters deprovision <cluster> --force
 ```
+
+### Predefined Templates
+
+Templates are automatically initialized on startup:
+
+| Template | Nodes | Mode | Use Case |
+|----------|-------|------|----------|
+| `dev-single` | 1 | async | Development/testing |
+| `dev-replica` | 2 | async | Development with redundancy |
+| `standard` | 3 | async | General production |
+| `ha-semisync` | 3 | semi-sync | Critical production |
+| `read-heavy` | 5 | async | Analytics/reporting |
+| `production-ha` | 4 | semi-sync | Mission-critical |
+| `geo-distributed` | 6 | async | Multi-region |
 
 ### Cluster Management
 
 ```bash
-/clusters list                            # List all clusters
-/clusters topology [--name <cluster>]     # Show topology
-/clusters import --primary <host:port>    # Import existing topology
-/clusters create --name <n> --primary <h:p> [--replicas <h:p,...>]
-/clusters sync [--name <cluster>]         # Sync to ProxySQL
-/clusters promote --name <n> --host <h:p> # Promote replica to primary
+/clusters list                        # List all clusters
+/clusters topology [--name <cluster>] # Show topology
+```
 
-# Template-based provisioning
-/clusters provision --template <name> --cluster <name> --hosts <h:p,...>
-  # Provision from template (first host=primary, rest=replicas)
-/clusters deprovision <cluster> --force   # Remove provisioned cluster
+### Manual Operations (Advanced)
+
+```bash
+/clusters manual create --name <n> --primary <h:p> [--replicas <h:p,...>]
+/clusters manual import --primary <h:p>
+/clusters manual sync [--name <cluster>]
+/clusters manual promote --name <n> --host <h:p>
 ```
 
 ### Template Management
@@ -129,113 +123,50 @@ Available keys: `mysql.admin_user`, `mysql.admin_password`, `mysql.repl_user`, `
 ```bash
 /templates list                     # List available templates
 /templates create --name <n> [--replicas <n>] [--mode <async|semi-sync>]
-/templates show <name>              # Show template details
-/templates delete <name> --force    # Delete template
+/templates show <name>
+/templates delete <name> --force
+```
+
+### Instance Management
+
+```bash
+/instances list
+/instances discover <network> [options]
+/instances register --host <host> [opts]
+/instances remove --host <host>
 ```
 
 ## Architecture Overview
 
-ClawSQL is a Node.js/TypeScript application that provides unified management for MySQL clusters through integrations with external tools.
+ClawSQL is a Node.js/TypeScript application that provides unified management for MySQL clusters.
 
 ### Core Modules (`src/core/`)
 
 - **discovery/**: Instance discovery and topology management
-  - `models.ts`: Core data models (`MySQLInstance`, `MySQLCluster`, enums for roles/states/health)
-  - `scanner.ts`: Network scanning for MySQL instances
-  - `topology.ts`: Orchestrator client for topology sync
-
 - **monitoring/**: Metrics collection and alerting
-  - `collector.ts`: Periodic metrics collection from MySQL
-  - `health_checker.ts`: Threshold-based health evaluation
-  - `alert_manager.ts`: Alert generation and management
-  - `exporters.ts`: Prometheus metrics export
-
 - **failover/**: Automatic and manual failover
-  - `detector.ts`: Failure detection with confirmation checks
-  - `executor.ts`: Failover orchestration (`FailoverOperation`, `FailoverExecutor`)
-  - `recovery.ts`: Instance recovery and reintegration
-
 - **provisioning/**: Template-based cluster provisioning
-  - `template-manager.ts`: Template CRUD operations and validation
+  - `predefined-templates.ts`: Built-in templates for common scenarios
+  - `template-manager.ts`: Template CRUD and validation
   - `cluster-provisioner.ts`: Provisioning engine with replication setup
-
 - **routing/**: ProxySQL integration
-  - `proxysql_manager.ts`: Dynamic ProxySQL configuration, per-cluster port allocation
-  - `load_balancer.ts`: Dynamic weight adjustment for read replicas
 
 ### API Layer (`src/api/`)
 
-- `routes/`: REST API endpoints (instances, clusters, failover, monitoring, config)
-- `middleware/`: Authentication (JWT) and request logging
+- `routes/`: REST API endpoints
+- `middleware/`: Authentication and logging
 - `schemas/`: Zod request/response models
 
 ### CLI Layer (`src/cli/`)
 
-- `index.ts`: Main CLI entry point with interactive shell
-- `registry.ts`: Command registration and context
+- `index.ts`: Main CLI entry point
+- `registry.ts`: Command registration
 - `commands/`: Individual command implementations
-  - `start.ts`, `stop.ts`, `status.ts`, `cleanup.ts`, `doctor.ts`
-  - `config.ts`, `instances.ts`, `clusters.ts`, `templates.ts`
-  - `topology.ts`, `failover.ts`, `health.ts`, `sql.ts`
-- `utils/`: Shared CLI utilities
-  - `args.ts`: Common argument parsing (`parseHostPort`, `parseStringArg`, etc.)
-
-### Configuration
-
-Settings loaded from environment variables via Zod schemas. See `.env.example`.
-
-**Key Settings:**
-- `API_TOKEN_SECRET`: JWT secret for authentication
-- `ORCHESTRATOR_URL`: Orchestrator API endpoint
-- `AUTO_FAILOVER_ENABLED`: Enable/disable automatic failover
-- `MYSQL_ADMIN_USER/PASSWORD`: Credentials for your MySQL instances
-
-**Config file location:** `~/.clawsql/config.json`
-
-### Integration Points
-
-1. **Orchestrator**: Source of truth for MySQL topology
-   - Topology discovery and sync
-   - Graceful failover execution
-   - Replica relocation
-   - API uses GET method for discover/forget operations
-
-2. **ProxySQL**: Traffic routing layer
-   - Per-cluster port allocation (6033-6050 range)
-   - Per-cluster hostgroup blocks (writer=N, reader=N+10)
-   - Dynamic server configuration at runtime
-   - Note: ProxySQL admin doesn't support prepared statements
-
-3. **Prometheus**: Metrics storage
-
-4. **OpenClaw**: AI-powered operations
-   - Automatically starts as Docker container with platform
-   - Gateway WebSocket at `ws://localhost:18789`
-   - Control UI at `http://localhost:18790`
-   - Detection logic in `src/cli/agent/openclaw-integration.ts`
-   - If local OpenClaw is running, Docker container is skipped
-
-### Failover Flow
-
-1. `FailureDetector` identifies primary failure
-2. Multiple confirmation checks (configurable)
-3. `FailoverExecutor` selects best candidate (lowest lag, best binlog position)
-4. Orchestrator promotes candidate
-5. Replicas reconfigured to follow new primary
-6. ProxySQL routing updated
-
-### Key Patterns
-
-- **Async I/O**: All database and HTTP operations are async
-- **Zod validation**: All settings and API inputs validated with Zod schemas
-- **Enum types**: Used extensively for states, roles, and health status
-- **Dual database support**: SQLite (default) and MySQL for metadata storage
+- `utils/`: Shared utilities
 
 ## MySQL Configuration Requirements
 
 ### Admin User (Required)
-
-Create the `clawsql` admin user on your MySQL instances. This user is used by ClawSQL for all operations:
 
 ```sql
 CREATE USER 'clawsql'@'%' IDENTIFIED WITH mysql_native_password BY 'clawsql_password';
@@ -245,20 +176,14 @@ FLUSH PRIVILEGES;
 
 ### Replication User (Created Automatically)
 
-The replication user is created automatically by `/instances setup-replication`. If needed manually:
-
-```sql
-CREATE USER 'repl'@'%' IDENTIFIED WITH mysql_native_password BY 'repl_password';
-GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
-FLUSH PRIVILEGES;
-```
+The replication user is created automatically during provisioning.
 
 ## Common Issues
 
-1. **Orchestrator API returns 404**: The Orchestrator API uses GET method (not POST) for `/api/discover/{host}/{port}`
+1. **Orchestrator API returns 404**: Uses GET method for `/api/discover/{host}/{port}`
 
-2. **ProxySQL "Command not supported"**: ProxySQL admin interface doesn't support prepared statements. Use `query()` instead of `execute()` with interpolated parameters.
+2. **ProxySQL "Command not supported"**: Admin interface doesn't support prepared statements
 
-3. **ProxySQL ON DUPLICATE KEY**: Not supported. Use DELETE + INSERT pattern instead.
+3. **ProxySQL ON DUPLICATE KEY**: Not supported. Use DELETE + INSERT pattern
 
-4. **Replication auth error**: MySQL 8.0 uses `caching_sha2_password` by default. Use `mysql_native_password` for replication users.
+4. **Replication auth error**: MySQL 8.0 uses `caching_sha2_password` by default. Use `mysql_native_password`
