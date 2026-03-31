@@ -25,6 +25,12 @@ export const CONFIG = {
   containerName: 'openclaw',
 };
 
+/**
+ * Internal cluster names to filter out from topology
+ */
+export const INTERNAL_CLUSTER_PREFIXES = ['metadata-mysql', 'metadata_mysql'];
+export const INTERNAL_CLUSTER_NAMES = ['mysql'];
+
 // Cached runtime detection
 let cachedRuntime: 'docker' | 'podman' | null | undefined;
 
@@ -50,6 +56,10 @@ export interface OpenClawStatus {
   available: boolean;
   isLocal: boolean;
   isDocker: boolean;
+  /** Gateway is healthy but source is unknown (no CLI, no Docker container) */
+  isUnknown: boolean;
+  /** Error message explaining why available=false */
+  error?: string;
 }
 
 export interface ModelProviderInfo {
@@ -274,17 +284,23 @@ export async function isGatewayHealthy(): Promise<boolean> {
 
 /**
  * Check if local OpenClaw CLI is running (not in container)
+ * This checks if the gateway is healthy AND the openclaw CLI reports local mode.
+ * Note: This does NOT check for Docker - Docker and local can coexist.
  */
 export async function isLocalOpenClawAvailable(): Promise<boolean> {
-  if (await isDockerOpenClawAvailable()) return false;
-  if (!(await isGatewayHealthy())) return false;
+  // First check if gateway is healthy (fast HTTP check)
+  if (!(await isGatewayHealthy())) {
+    return false;
+  }
 
+  // Then check if openclaw CLI reports local mode
   const result = await execCommand('openclaw', ['status', '--json'], { timeout: CONFIG.healthCheckTimeout });
   if (!result.success) return false;
 
   try {
     const status = JSON.parse(result.stdout);
-    return status.gateway?.mode === 'local' && !!status.gateway?.url;
+    // Local mode can be 'local' or the gateway might just be running locally
+    return (status.gateway?.mode === 'local' || status.gateway?.mode === 'standalone') && !!status.gateway?.url;
   } catch {
     return false;
   }
@@ -304,15 +320,62 @@ export async function isOpenClawAvailable(): Promise<boolean> {
 }
 
 /**
+ * Check if openclaw CLI binary exists
+ */
+async function isOpenClawCLIInstalled(): Promise<boolean> {
+  const result = await execCommand('which', ['openclaw'], { timeout: 2000 });
+  return result.success && result.stdout.trim().length > 0;
+}
+
+/**
  * Get OpenClaw status summary
+ * Prioritizes local installation over Docker container.
+ * Returns error if gateway is healthy but source is unknown (no CLI, no Docker).
  */
 export async function getOpenClawStatus(): Promise<OpenClawStatus> {
-  const [isDocker, isLocal] = await Promise.all([
-    isDockerOpenClawAvailable(),
-    isLocalOpenClawAvailable(),
-  ]);
+  // Check gateway health first (fast HTTP check)
+  const gatewayHealthy = await isGatewayHealthy();
 
-  return { available: isDocker || isLocal, isDocker, isLocal };
+  if (!gatewayHealthy) {
+    // Gateway not healthy - check if Docker container exists at all
+    const isDocker = await isDockerOpenClawAvailable();
+    return { available: isDocker, isDocker, isLocal: false, isUnknown: false };
+  }
+
+  // Gateway is healthy - determine if it's local or Docker
+  // Check for local OpenClaw CLI first (prioritize local over Docker)
+  const isLocal = await isLocalOpenClawAvailable();
+  if (isLocal) {
+    return { available: true, isDocker: false, isLocal: true, isUnknown: false };
+  }
+
+  // Gateway is healthy but not local - check if Docker container is running
+  const isDocker = await isDockerOpenClawAvailable();
+  if (isDocker) {
+    return { available: true, isDocker: true, isLocal: false, isUnknown: false };
+  }
+
+  // Gateway is healthy but we can't determine source - this is problematic
+  // Either a local gateway is running without CLI, or something else is using port 18789
+  const cliInstalled = await isOpenClawCLIInstalled();
+  if (!cliInstalled) {
+    return {
+      available: false,
+      isDocker: false,
+      isLocal: false,
+      isUnknown: true,
+      error: 'Gateway is running on port 18789 but openclaw CLI is not installed. Install the CLI or stop the gateway to use Docker.',
+    };
+  }
+
+  // CLI exists but couldn't get status - still problematic
+  return {
+    available: false,
+    isDocker: false,
+    isLocal: false,
+    isUnknown: true,
+    error: 'Gateway is running but unable to determine its source. Check OpenClaw installation.',
+  };
 }
 
 // ============================================================================
@@ -578,23 +641,27 @@ export async function testOpenClawConnection(query = 'Hello'): Promise<{
  */
 export async function getDetailedOpenClawStatus(): Promise<{
   available: boolean;
-  mode: 'docker' | 'local' | 'unavailable';
+  mode: 'docker' | 'local' | 'unknown' | 'unavailable';
   gatewayHealthy: boolean;
   modelInfo: ModelProviderInfo;
   controlUI: string;
   gatewayUrl: string;
+  error?: string;
 }> {
   const status = await getOpenClawStatus();
-  const gatewayHealthy = status.available && await isGatewayHealthy();
+  // For unknown status, gateway is healthy (that's why we detected it)
+  // For unavailable, gateway is not healthy
+  const gatewayHealthy = status.isUnknown || (status.available && await isGatewayHealthy());
   const modelInfo = status.available ? await getModelProviderInfo() : { provider: null, model: null, configured: false };
 
   return {
     available: status.available,
-    mode: status.isDocker ? 'docker' : status.isLocal ? 'local' : 'unavailable',
+    mode: status.isUnknown ? 'unknown' : status.isDocker ? 'docker' : status.isLocal ? 'local' : 'unavailable',
     gatewayHealthy,
     modelInfo,
     controlUI: 'http://localhost:18790',
     gatewayUrl: CONFIG.gatewayUrl,
+    error: status.error,
   };
 }
 
@@ -613,7 +680,27 @@ export async function ensureOpenClawRunning(timeoutSeconds = 30): Promise<boolea
   const deadline = Date.now() + timeoutSeconds * 1000;
   while (Date.now() < deadline) {
     if (await isGatewayHealthy()) return true;
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 1000));
   }
   return false;
+}
+
+/**
+ * Print guidance for unknown gateway status
+ * Used by both /start and /openclaw status commands
+ */
+export function printUnknownGatewayGuidance(
+  error: string | undefined,
+  log: (msg: string) => void
+): void {
+  log(`  Gateway detected but source is unclear.`);
+  if (error) {
+    log(`  ${error}`);
+  }
+  log('');
+  log('  Options:');
+  log('    1. Install openclaw CLI to use local gateway');
+  log('    2. Stop the gateway process to use Docker');
+  log('       Find process: ss -tlnp | grep 18789');
+  log('       Kill process: kill <PID>');
 }

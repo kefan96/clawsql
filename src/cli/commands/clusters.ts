@@ -506,7 +506,7 @@ async function syncCluster(args: string[], ctx: CLIContext): Promise<void> {
       );
 
       if (result.success) {
-        console.log(formatter.success(`  Synced ${result.serversAdded} server(s)`));
+        console.log(formatter.success(`  Synced ${result.serversAdded} server(s), removed ${result.serversRemoved} stale`));
       } else {
         console.log(formatter.error(`  Sync failed: ${result.errors.join(', ')}`));
       }

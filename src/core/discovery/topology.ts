@@ -16,6 +16,7 @@ import {
 } from '../../types/index.js';
 import { OrchestratorError } from '../../utils/exceptions.js';
 import { OrchestratorSettings } from '../../config/settings.js';
+import { INTERNAL_CLUSTER_PREFIXES, INTERNAL_CLUSTER_NAMES } from '../../cli/agent/openclaw-integration.js';
 
 const logger = getLogger('orchestrator');
 
@@ -97,13 +98,21 @@ export class OrchestratorClient {
 
   /**
    * Get all known cluster names
+   * Filters out internal/system clusters like Orchestrator's metadata database
    */
   async getClusters(): Promise<string[]> {
     try {
       const response = await this.client.get('/api/clusters');
-      return response.data.map((c: { cluster_name?: string } | string) =>
+      const clusters = response.data.map((c: { cluster_name?: string } | string) =>
         typeof c === 'string' ? c : c.cluster_name || ''
       ).filter(Boolean);
+
+      // Filter out internal clusters (Orchestrator's metadata database, etc.)
+      return clusters.filter((clusterName: string) => {
+        const lower = clusterName.toLowerCase();
+        return !INTERNAL_CLUSTER_PREFIXES.some(p => lower.startsWith(p)) &&
+               !INTERNAL_CLUSTER_NAMES.includes(lower);
+      });
     } catch (error) {
       throw new OrchestratorError('Failed to get clusters', { error });
     }

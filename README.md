@@ -13,6 +13,7 @@ MySQL High Availability Management Platform with automatic failover, read/write 
 
 ## Prerequisites
 
+- **Node.js**: v22.22+ (for CLI)
 - **Container Runtime**: Docker or Podman
 - **Docker Compose**: docker-compose or podman-compose
 

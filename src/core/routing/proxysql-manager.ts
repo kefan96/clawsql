@@ -336,6 +336,7 @@ export class ProxySQLManager {
 
   /**
    * Sync an entire cluster to ProxySQL
+   * Uses upsert logic: adds missing servers, removes servers not in topology
    */
   async syncCluster(
     cluster: MySQLCluster,
@@ -366,30 +367,82 @@ export class ProxySQLManager {
         await this.setMonitorCredentials(adminUser, adminPassword);
       }
 
-      // Clear existing servers from both hostgroups before adding new ones
-      // This ensures stale entries (e.g., old primary in writer hostgroup) are removed
-      await this.execute(
-        'DELETE FROM mysql_servers WHERE hostgroup_id IN (?, ?)',
-        [writerHostgroup, readerHostgroup]
-      );
-      logger.debug({ writerHostgroup, readerHostgroup }, 'Cleared existing servers from hostgroups');
+      // Get current servers in both hostgroups
+      const currentServers = await this.getServers();
+      const currentInWriter = currentServers.filter(s => s.hostgroupId === writerHostgroup);
+      const currentInReader = currentServers.filter(s => s.hostgroupId === readerHostgroup);
 
-      // Add primary to writer hostgroup
+      // Build expected servers from cluster topology
+      const expectedServers = new Set<string>();
       if (cluster.primary) {
-        if (await this.addServer(cluster.primary, writerHostgroup)) {
+        expectedServers.add(`${writerHostgroup}:${cluster.primary.host}:${cluster.primary.port}`);
+      }
+      for (const replica of cluster.replicas) {
+        expectedServers.add(`${readerHostgroup}:${replica.host}:${replica.port}`);
+      }
+
+      // Remove servers that are no longer in topology
+      for (const server of [...currentInWriter, ...currentInReader]) {
+        const key = `${server.hostgroupId}:${server.hostname}:${server.port}`;
+        if (!expectedServers.has(key)) {
+          try {
+            await this.execute(
+              'DELETE FROM mysql_servers WHERE hostgroup_id = ? AND hostname = ? AND port = ?',
+              [server.hostgroupId, server.hostname, server.port]
+            );
+            result.serversRemoved++;
+            logger.debug({ host: server.hostname, port: server.port, hostgroup: server.hostgroupId }, 'Removed stale server');
+          } catch (error) {
+            logger.warn({ error, server }, 'Failed to remove stale server');
+          }
+        }
+      }
+
+      // Add primary to writer hostgroup (upsert)
+      if (cluster.primary) {
+        // Remove from reader hostgroup if present (primary shouldn't be in reader)
+        try {
+          await this.execute(
+            'DELETE FROM mysql_servers WHERE hostname = ? AND port = ? AND hostgroup_id = ?',
+            [cluster.primary.host, cluster.primary.port, readerHostgroup]
+          );
+        } catch {
+          // Ignore if doesn't exist
+        }
+        // Add to writer hostgroup
+        try {
+          await this.execute(
+            `INSERT INTO mysql_servers (hostgroup_id, hostname, port, weight, max_connections, comment)
+             VALUES (?, ?, ?, 1, 1000, ?)`,
+            [writerHostgroup, cluster.primary.host, cluster.primary.port, `ClawSQL: ${cluster.primary.host}:${cluster.primary.port}`]
+          );
           result.serversAdded++;
+        } catch {
+          // Server might already exist, that's OK
         }
       }
 
       // Add replicas to reader hostgroup
       for (const replica of cluster.replicas) {
-        if (await this.addServer(replica, readerHostgroup)) {
+        try {
+          // Remove from writer hostgroup if present (replica shouldn't be in writer)
+          await this.execute(
+            'DELETE FROM mysql_servers WHERE hostname = ? AND port = ? AND hostgroup_id = ?',
+            [replica.host, replica.port, writerHostgroup]
+          );
+          // Add to reader hostgroup
+          await this.execute(
+            `INSERT INTO mysql_servers (hostgroup_id, hostname, port, weight, max_connections, comment)
+             VALUES (?, ?, ?, 1, 1000, ?)`,
+            [readerHostgroup, replica.host, replica.port, `ClawSQL: ${replica.host}:${replica.port}`]
+          );
           result.serversAdded++;
+        } catch {
+          // Server might already exist, that's OK
         }
       }
 
       // Setup replication hostgroups for automatic failover detection
-      // ProxySQL doesn't support ON DUPLICATE KEY UPDATE, use REPLACE or delete+insert
       try {
         await this.execute(
           `DELETE FROM mysql_replication_hostgroups WHERE writer_hostgroup = ?`,
@@ -415,7 +468,7 @@ export class ProxySQLManager {
       await this.loadConfigToRuntime();
       await this.saveConfigToDisk();
 
-      logger.info({ clusterId: cluster.clusterId, serversAdded: result.serversAdded }, 'Cluster synced to ProxySQL');
+      logger.info({ clusterId: cluster.clusterId, serversAdded: result.serversAdded, serversRemoved: result.serversRemoved }, 'Cluster synced to ProxySQL');
     } catch (error) {
       result.success = false;
       result.errors.push(String(error));

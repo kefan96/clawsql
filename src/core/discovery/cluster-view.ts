@@ -19,6 +19,7 @@ import {
   ProxySQLManager,
   ProxySQLServerStats,
   ProxySQLReplicationHostgroup,
+  ProxySQLServer,
 } from '../routing/proxysql-manager.js';
 
 const logger = getLogger('cluster-view');
@@ -55,9 +56,10 @@ export class ClusterViewService {
   async getMergedView(clusterName: string): Promise<MergedClusterView | null> {
     try {
       // Fetch all data in parallel
-      const [topology, serverStats, hostgroups] = await Promise.all([
+      const [topology, serverStats, servers, hostgroups] = await Promise.all([
         this.orchestrator.getTopology(clusterName),
         this.proxysql.getServerStats(),
+        this.proxysql.getServers(),
         this.proxysql.getReplicationHostgroups(),
       ]);
 
@@ -81,12 +83,12 @@ export class ClusterViewService {
       // Calculate health
       const health = this.calculateHealth(primary, replicas);
 
-      // Detect sync warnings
+      // Detect sync warnings using mysql_servers table (not stats which only shows active connections)
       const syncWarnings = this.detectSyncWarnings(
         primary,
         replicas,
         hostgroupMap,
-        serverStats
+        servers
       );
 
       return {
@@ -203,23 +205,31 @@ export class ClusterViewService {
 
   /**
    * Detect sync warnings between Orchestrator and ProxySQL
+   * Uses mysql_servers table for accurate server presence detection
    */
   private detectSyncWarnings(
     primary: MergedInstanceInfo | null,
     replicas: MergedInstanceInfo[],
     hostgroupMap: { writer?: number; reader?: number },
-    allServerStats: ProxySQLServerStats[]
+    allServers: ProxySQLServer[]
   ): SyncWarning[] {
     const warnings: SyncWarning[] = [];
     const orchestratorInstances = new Set<string>();
+
+    // Create lookup for configured servers by host:port
+    const configuredServers = new Map<string, ProxySQLServer>();
+    for (const server of allServers) {
+      const key = `${server.hostname}:${server.port}`;
+      configuredServers.set(key, server);
+    }
 
     // Check primary
     if (primary) {
       const key = `${primary.host}:${primary.port}`;
       orchestratorInstances.add(key);
 
-      // Check if primary is missing in ProxySQL
-      if (!primary.proxysqlStatus) {
+      const configured = configuredServers.get(key);
+      if (!configured) {
         warnings.push({
           type: 'missing_in_proxysql',
           instance: key,
@@ -229,13 +239,12 @@ export class ClusterViewService {
       // Check if primary is in wrong hostgroup (should be in writer)
       else if (
         hostgroupMap.writer !== undefined &&
-        primary.hostgroup !== undefined &&
-        primary.hostgroup !== hostgroupMap.writer
+        configured.hostgroupId !== hostgroupMap.writer
       ) {
         warnings.push({
           type: 'wrong_hostgroup',
           instance: key,
-          message: `Primary ${key} is in hostgroup ${primary.hostgroup} (should be ${hostgroupMap.writer})`,
+          message: `Primary ${key} is in hostgroup ${configured.hostgroupId} (should be ${hostgroupMap.writer})`,
         });
       }
     }
@@ -245,8 +254,8 @@ export class ClusterViewService {
       const key = `${replica.host}:${replica.port}`;
       orchestratorInstances.add(key);
 
-      // Check if replica is missing in ProxySQL
-      if (!replica.proxysqlStatus) {
+      const configured = configuredServers.get(key);
+      if (!configured) {
         warnings.push({
           type: 'missing_in_proxysql',
           instance: key,
@@ -256,21 +265,20 @@ export class ClusterViewService {
       // Check if replica is in wrong hostgroup (should be in reader)
       else if (
         hostgroupMap.reader !== undefined &&
-        replica.hostgroup !== undefined &&
-        replica.hostgroup !== hostgroupMap.reader
+        configured.hostgroupId !== hostgroupMap.reader
       ) {
         warnings.push({
           type: 'wrong_hostgroup',
           instance: key,
-          message: `Replica ${key} is in hostgroup ${replica.hostgroup} (should be ${hostgroupMap.reader})`,
+          message: `Replica ${key} is in hostgroup ${configured.hostgroupId} (should be ${hostgroupMap.reader})`,
         });
       }
     }
 
     // Check for instances in ProxySQL that are not in Orchestrator topology
-    for (const stat of allServerStats) {
-      const key = `${stat.host}:${stat.port}`;
-      if (!orchestratorInstances.has(key) && stat.status === 'ONLINE') {
+    for (const server of allServers) {
+      const key = `${server.hostname}:${server.port}`;
+      if (!orchestratorInstances.has(key) && server.status === 'ONLINE') {
         warnings.push({
           type: 'unknown_in_orchestrator',
           instance: key,

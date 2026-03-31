@@ -18,7 +18,7 @@ import {
   executeCommand,
   clearProgressCache,
 } from '../utils/command-executor.js';
-import { isLocalOpenClawAvailable, isDockerOpenClawAvailable } from '../agent/index.js';
+import { getOpenClawStatus, printUnknownGatewayGuidance } from '../agent/index.js';
 import { detectAIConfigFromEnv, getAIConfigDisplay } from '../utils/ai-config.js';
 import { spawn } from 'child_process';
 
@@ -95,15 +95,27 @@ export const startCommand: Command = {
     // Ensure .env file exists
     await ensureEnvFile();
 
-    // Check for local OpenClaw installation
-    const localOpenClawAvailable = await isLocalOpenClawAvailable();
-    const dockerOpenClawAvailable = await isDockerOpenClawAvailable();
-    const useLocalOpenClaw = localOpenClawAvailable || dockerOpenClawAvailable;
+    // Check for OpenClaw availability
+    // Use getOpenClawStatus which properly prioritizes local over Docker
+    const openClawStatus = await getOpenClawStatus();
+    const useLocalOpenClaw = openClawStatus.isLocal;
+    const hasOpenClaw = openClawStatus.available;
+    const hasUnknownGateway = openClawStatus.isUnknown;
 
-    if (useLocalOpenClaw) {
-      console.log(formatter.success('OpenClaw gateway detected (using existing installation)'));
+    // Handle unknown gateway (running but source unclear)
+    if (hasUnknownGateway) {
+      console.log(formatter.warning('OpenClaw gateway detected on port 18789 but source is unknown'));
+      printUnknownGatewayGuidance(openClawStatus.error, msg => console.log(formatter.error(msg)));
+      console.log(formatter.info('  3. Continue without AI features (OpenClaw will not be started)'));
+      console.log();
+    } else if (hasOpenClaw) {
+      if (useLocalOpenClaw) {
+        console.log(formatter.success('OpenClaw gateway detected (using local installation)'));
+      } else {
+        console.log(formatter.success('OpenClaw gateway detected (using Docker container)'));
+      }
     } else {
-      console.log(formatter.info('No local OpenClaw found - will start in Docker'));
+      console.log(formatter.info('No OpenClaw found - will start in Docker'));
     }
 
     // Build compose arguments
@@ -154,9 +166,8 @@ export const startCommand: Command = {
     // Note: By default, docker-compose will pull missing images automatically
     // We don't add --no-pull because we want the fallback behavior
 
-    // Skip OpenClaw service if already running locally
-    // Note: --scale must come after 'up' in docker-compose
-    if (useLocalOpenClaw) {
+    // Skip OpenClaw service if already running locally or if gateway source is unknown
+    if (useLocalOpenClaw || hasUnknownGateway) {
       composeArgs.push('--scale', 'openclaw=0');
     }
 
@@ -166,7 +177,7 @@ export const startCommand: Command = {
     // Show services to be started
     console.log();
     console.log(chalk.bold('Services:'));
-    const services = getServiceList(demoMode, allInOneMode, !useLocalOpenClaw);
+    const services = getServiceList(demoMode, allInOneMode, !useLocalOpenClaw && !hasUnknownGateway);
     for (const service of services) {
       console.log(`  ${chalk.gray('○')} ${service}`);
     }
@@ -267,19 +278,23 @@ export const startCommand: Command = {
     }
     console.log(`  ${chalk.green('ClawSQL API ready ✓')}`);
 
-    // Wait for OpenClaw gateway to be ready (skip if using local)
-    if (!useLocalOpenClaw) {
+    // Wait for OpenClaw gateway to be ready (skip if using local or unknown)
+    if (!useLocalOpenClaw && !hasUnknownGateway && !hasOpenClaw) {
       console.log(`  ${chalk.cyan('OpenClaw gateway...')}`);
-      console.log(formatter.info('  OpenClaw may take 1-2 minutes to initialize (AI model loading)'));
-      const openclawReady = await waitForOpenClaw(120);
+      console.log(formatter.info('  OpenClaw may take 30-60 seconds to initialize (AI model loading)'));
+      const openclawReady = await waitForOpenClaw(60);
 
       if (!openclawReady) {
-        console.log(`  ${chalk.yellow('OpenClaw gateway not ready after 2 minutes')}`);
+        console.log(`  ${chalk.yellow('OpenClaw gateway not ready after 60 seconds')}`);
         console.log(formatter.info('  AI features may be limited. Check logs: podman logs openclaw'));
         console.log(formatter.info('  Gateway will become available when ready - check with /status'));
       } else {
         console.log(`  ${chalk.green('OpenClaw gateway ready ✓')}`);
       }
+    } else if (useLocalOpenClaw) {
+      console.log(`  ${chalk.green('OpenClaw gateway ready ✓')} ${chalk.gray('(local)')}`);
+    } else if (hasUnknownGateway) {
+      console.log(`  ${chalk.yellow('OpenClaw gateway: skipped')} ${chalk.gray('(port 18789 already in use by unknown source)')}`);
     }
 
     console.log(formatter.success('ClawSQL platform is ready!'));
@@ -299,7 +314,12 @@ export const startCommand: Command = {
     // Detect AI config from environment
     const aiConfig = detectAIConfigFromEnv();
 
-    if (useLocalOpenClaw) {
+    if (hasUnknownGateway) {
+      console.log(`  ${chalk.yellow('Status:')}       Unknown (port 18789 in use)`);
+      console.log(`  ${chalk.yellow('Warning:')}      Gateway detected but source unclear`);
+      console.log(chalk.yellow('  AI features may not work correctly.'));
+      console.log(formatter.info('  Install openclaw CLI or stop the gateway to use Docker'));
+    } else if (useLocalOpenClaw) {
       console.log(`  ${chalk.green('Status:')}       Using local installation`);
       console.log(`  ${chalk.cyan('Control UI:')}    http://localhost:18790`);
       console.log(`  ${chalk.gray('Features:')}      Chat with AI, manage sessions, view logs`);

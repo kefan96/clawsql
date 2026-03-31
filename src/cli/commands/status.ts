@@ -122,10 +122,15 @@ export const statusCommand: Command = {
       }
     } else {
       // Filter to show only platform containers, not MySQL demo containers
+      // Also hide openclaw container if local OpenClaw is running
       const platformContainers = containers.filter(c =>
         !c.name.startsWith('mysql-') && !c.name.includes('mysql-replica')
       );
       for (const container of platformContainers) {
+        // Skip openclaw container status if local OpenClaw is healthy
+        if (container.name === 'openclaw' && status.services.openclaw.isLocal && status.services.openclaw.healthy) {
+          continue;
+        }
         const statusColor = container.status === 'running' ? theme.success : theme.error;
         console.log(`  ${statusColor(indicators.success)} ${container.name.padEnd(20)} ${statusColor(container.status)}`);
       }

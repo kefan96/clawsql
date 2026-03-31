@@ -64,20 +64,33 @@ export class RawInputHandler {
   private pasteBuffer: string = '';
   private pasteTimeout: NodeJS.Timeout | null = null;
   private static readonly PASTE_TIMEOUT_MS = 5000; // 5 second timeout for bracketed paste
+  private bracketedPasteSupported: boolean = false;
 
   constructor(prompt: string = 'clawsql ❯ ') {
     this.prompt = prompt;
     this.allCommands = getAllCommandSuggestions();
-    this.enableBracketedPaste();
+    this.bracketedPasteSupported = this.enableBracketedPaste();
   }
 
   /**
    * Enable bracketed paste mode (for better paste handling)
+   * Returns true if the terminal likely supports it
    */
-  private enableBracketedPaste(): void {
+  private enableBracketedPaste(): boolean {
     if (process.stdout.isTTY) {
-      process.stdout.write('\x1B[?2004h');
+      // Check if terminal likely supports bracketed paste mode
+      // Most modern terminals (xterm, screen-256color, tmux, etc.) support it
+      const term = process.env.TERM || '';
+      const supportedTerms = ['xterm', 'screen', 'tmux', 'vt', 'rxvt', 'putty', 'iterm'];
+      const isSupported = supportedTerms.some(t => term.toLowerCase().includes(t));
+
+      if (isSupported || !term) {
+        // Terminal likely supports bracketed paste mode
+        process.stdout.write('\x1B[?2004h');
+        return true;
+      }
     }
+    return false;
   }
 
   /**
@@ -104,7 +117,9 @@ export class RawInputHandler {
    */
   cleanup(): void {
     this.clearPasteTimeout();
-    this.disableBracketedPaste();
+    if (this.bracketedPasteSupported) {
+      this.disableBracketedPaste();
+    }
   }
 
   /**
@@ -171,62 +186,64 @@ export class RawInputHandler {
    * Handle keyboard input
    */
   private handleInput(data: string): { done?: boolean; value?: string; cancelled?: boolean; exitRequested?: boolean } {
-    // Handle bracketed paste mode
-    if (data.startsWith('\x1B[200~')) {
-      // Start of bracketed paste
-      this.inBracketedPaste = true;
-      this.pasteBuffer = '';
+    // Handle bracketed paste mode (if supported)
+    if (this.bracketedPasteSupported) {
+      if (data.startsWith('\x1B[200~')) {
+        // Start of bracketed paste
+        this.inBracketedPaste = true;
+        this.pasteBuffer = '';
 
-      // Check if the end sequence is also in this chunk (complete paste in one chunk)
-      const endIdx = data.indexOf('\x1B[201~');
-      if (endIdx !== -1) {
-        // Complete paste in single chunk - extract content between markers
-        const content = data.slice(6, endIdx); // Between start and end sequences
-        this.inBracketedPaste = false;
-        this.processPaste(content);
+        // Check if the end sequence is also in this chunk (complete paste in one chunk)
+        const endIdx = data.indexOf('\x1B[201~');
+        if (endIdx !== -1) {
+          // Complete paste in single chunk - extract content between markers
+          const content = data.slice(6, endIdx); // Between start and end sequences
+          this.inBracketedPaste = false;
+          this.processPaste(content);
+          return {};
+        }
+
+        // Set timeout to prevent getting stuck if end sequence never arrives
+        this.clearPasteTimeout();
+        this.pasteTimeout = setTimeout(() => {
+          if (this.inBracketedPaste && this.pasteBuffer) {
+            // Timeout - process what we have and exit bracketed paste mode
+            this.inBracketedPaste = false;
+            this.processPaste(this.pasteBuffer);
+            this.pasteBuffer = '';
+          }
+        }, RawInputHandler.PASTE_TIMEOUT_MS);
+        // Extract any content after the start sequence
+        const afterStart = data.slice(6); // '\x1B[200~'.length = 6
+        if (afterStart) {
+          this.pasteBuffer += afterStart;
+        }
         return {};
       }
 
-      // Set timeout to prevent getting stuck if end sequence never arrives
-      this.clearPasteTimeout();
-      this.pasteTimeout = setTimeout(() => {
-        if (this.inBracketedPaste && this.pasteBuffer) {
-          // Timeout - process what we have and exit bracketed paste mode
+      if (this.inBracketedPaste) {
+        if (data.includes('\x1B[201~')) {
+          // End of bracketed paste
+          this.clearPasteTimeout();
           this.inBracketedPaste = false;
+          // Extract content before the end sequence
+          const endIndex = data.indexOf('\x1B[201~');
+          this.pasteBuffer += data.slice(0, endIndex);
+          // Process the pasted content
           this.processPaste(this.pasteBuffer);
           this.pasteBuffer = '';
+          return {};
+        } else {
+          // Continue collecting paste content
+          this.pasteBuffer += data;
+          return {};
         }
-      }, RawInputHandler.PASTE_TIMEOUT_MS);
-      // Extract any content after the start sequence
-      const afterStart = data.slice(6); // '\x1B[200~'.length = 6
-      if (afterStart) {
-        this.pasteBuffer += afterStart;
       }
-      return {};
-    }
 
-    if (this.inBracketedPaste) {
+      // Ignore stray end bracketed paste sequence (can happen after timeout)
       if (data.includes('\x1B[201~')) {
-        // End of bracketed paste
-        this.clearPasteTimeout();
-        this.inBracketedPaste = false;
-        // Extract content before the end sequence
-        const endIndex = data.indexOf('\x1B[201~');
-        this.pasteBuffer += data.slice(0, endIndex);
-        // Process the pasted content
-        this.processPaste(this.pasteBuffer);
-        this.pasteBuffer = '';
-        return {};
-      } else {
-        // Continue collecting paste content
-        this.pasteBuffer += data;
         return {};
       }
-    }
-
-    // Ignore stray end bracketed paste sequence (can happen after timeout)
-    if (data.includes('\x1B[201~')) {
-      return {};
     }
 
     // Handle special keys
@@ -333,8 +350,16 @@ export class RawInputHandler {
       return {};
     }
 
-    // Regular character or multi-character paste (without bracketed paste mode)
+    // Regular character or multi-character input (paste without bracketed paste mode)
     if (data.length >= 1) {
+      // Detect large paste (multiple characters at once without bracketed paste markers)
+      // This handles terminals that don't support bracketed paste mode
+      if (data.length > 10 && !this.bracketedPasteSupported) {
+        // Treat as paste - process all at once
+        this.processPaste(data);
+        return {};
+      }
+
       // Filter out control characters and handle multi-character input
       const printableChars = data.split('').filter(c => c >= ' ' && c <= '~').join('');
       if (printableChars.length > 0) {

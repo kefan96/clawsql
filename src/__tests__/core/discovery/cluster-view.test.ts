@@ -33,6 +33,7 @@ describe('ClusterViewService', () => {
   };
   let mockProxySQL: {
     getServerStats: jest.Mock;
+    getServers: jest.Mock;
     getReplicationHostgroups: jest.Mock;
     getHost: jest.Mock;
     getMySQLPort: jest.Mock;
@@ -46,6 +47,7 @@ describe('ClusterViewService', () => {
 
     mockProxySQL = {
       getServerStats: jest.fn().mockResolvedValue([]),
+      getServers: jest.fn().mockResolvedValue([]),
       getReplicationHostgroups: jest.fn().mockResolvedValue([]),
       getHost: jest.fn().mockReturnValue('proxysql'),
       getMySQLPort: jest.fn().mockReturnValue(6033),

@@ -172,13 +172,16 @@ openclaw:
 
 ## Detection Logic
 
-ClawSQL automatically detects OpenClaw availability:
+ClawSQL automatically detects OpenClaw availability with three possible states:
 
-1. **Docker container check**: Looks for running `openclaw` container
-2. **Local gateway check**: Checks if gateway is reachable at `ws://localhost:18789`
-3. **CLI status check**: Verifies local OpenClaw CLI gateway status
+1. **Local OpenClaw**: Gateway is healthy and `openclaw` CLI reports local mode
+2. **Docker OpenClaw**: Gateway is healthy and Docker container is running
+3. **Unknown Gateway**: Gateway is healthy but source cannot be determined (no CLI, no Docker container)
+   - This happens when a gateway is running but `openclaw` CLI is not installed
+   - ClawSQL will skip starting Docker OpenClaw (port conflict prevention)
+   - To resolve: Install `openclaw` CLI or stop the existing gateway
 
-If a local OpenClaw is detected, the Docker container is skipped with `--scale openclaw=0`.
+If a local or Docker OpenClaw is detected, the Docker container is skipped with `--scale openclaw=0`.
 
 ## Health Checks
 

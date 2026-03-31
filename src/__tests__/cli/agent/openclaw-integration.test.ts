@@ -192,17 +192,7 @@ describe('OpenClaw Integration', () => {
   });
 
   describe('isLocalOpenClawAvailable', () => {
-    it('should return false when Docker container is available', async () => {
-      mockSpawn.mockReturnValueOnce(createMockProcess('openclaw\n', '', 0));
-
-      const result = await isLocalOpenClawAvailable();
-
-      expect(result).toBe(false);
-    });
-
     it('should return false when gateway is not healthy', async () => {
-      // Docker check returns no container
-      mockSpawn.mockReturnValueOnce(createMockProcess('', '', 0));
       // Gateway health fails
       (global.fetch as jest.Mock).mockResolvedValue({ ok: false });
 
@@ -212,7 +202,6 @@ describe('OpenClaw Integration', () => {
     });
 
     it('should return false when CLI status check fails', async () => {
-      mockSpawn.mockReturnValueOnce(createMockProcess('', '', 0)); // Docker check
       (global.fetch as jest.Mock).mockResolvedValue({ ok: true }); // Gateway healthy
       mockSpawn.mockReturnValueOnce(createMockProcess('', 'error', 1)); // CLI status
 
@@ -222,7 +211,6 @@ describe('OpenClaw Integration', () => {
     });
 
     it('should return true when local gateway is running', async () => {
-      mockSpawn.mockReturnValueOnce(createMockProcess('', '', 0)); // Docker check (no container)
       (global.fetch as jest.Mock).mockResolvedValue({ ok: true }); // Gateway healthy
       mockSpawn.mockReturnValueOnce(createMockProcess(
         JSON.stringify({ gateway: { mode: 'local', url: 'ws://localhost:18789' } }),
@@ -260,16 +248,6 @@ describe('OpenClaw Integration', () => {
       expect(result).toBe(true);
     });
 
-    it('should return true when local OpenClaw is available', async () => {
-      // Use command-aware mock for parallel/sequential calls
-      mockSpawn.mockImplementation(createCommandAwareMock('', { gateway: { mode: 'local', url: 'ws://localhost:18789' } }));
-      (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
-
-      const result = await isOpenClawAvailable();
-
-      expect(result).toBe(true);
-    });
-
     it('should return false when no OpenClaw available', async () => {
       mockSpawn.mockReturnValue(createMockProcess('', '', 0)); // Docker: no container
       (global.fetch as jest.Mock).mockResolvedValue({ ok: false }); // Gateway unhealthy
@@ -282,7 +260,11 @@ describe('OpenClaw Integration', () => {
 
   describe('getOpenClawStatus', () => {
     it('should return correct status for Docker OpenClaw', async () => {
-      mockSpawn.mockReturnValue(createMockProcess('openclaw\n', '', 0));
+      // Gateway healthy, but local not available (openclaw status shows non-local mode)
+      // Docker container running
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+      // openclaw status shows docker mode (not local)
+      mockSpawn.mockImplementation(createCommandAwareMock('openclaw\n', { gateway: { mode: 'docker', url: 'ws://localhost:18789' } }));
 
       const status = await getOpenClawStatus();
 
@@ -290,6 +272,7 @@ describe('OpenClaw Integration', () => {
         available: true,
         isDocker: true,
         isLocal: false,
+        isUnknown: false,
       });
     });
 
@@ -304,6 +287,7 @@ describe('OpenClaw Integration', () => {
         available: true,
         isDocker: false,
         isLocal: true,
+        isUnknown: false,
       });
     });
 
@@ -317,6 +301,7 @@ describe('OpenClaw Integration', () => {
         available: false,
         isDocker: false,
         isLocal: false,
+        isUnknown: false,
       });
     });
   });

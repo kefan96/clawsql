@@ -6,7 +6,7 @@ This guide walks you through setting up and using ClawSQL for MySQL high availab
 
 - **Container Runtime**: Docker or Podman
 - **Docker Compose**: `docker-compose` or `podman-compose`
-- **Node.js**: v18+ (for CLI development)
+- **Node.js**: v22.22+ (for CLI)
 
 ## Step 1: Install and Start the Platform
 

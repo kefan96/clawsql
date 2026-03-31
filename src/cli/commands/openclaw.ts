@@ -12,6 +12,7 @@ import {
   configureModelProvider,
   SUPPORTED_PROVIDERS,
   sendToOpenClaw,
+  printUnknownGatewayGuidance,
 } from '../agent/index.js';
 import { detectAIConfigFromEnv } from '../utils/ai-config.js';
 
@@ -52,7 +53,11 @@ async function handleStatus(ctx: CLIContext): Promise<void> {
   const status = await getDetailedOpenClawStatus();
 
   if (!status.available) {
-    printNotAvailable();
+    if (status.mode === 'unknown') {
+      printUnknownStatus(status);
+    } else {
+      printNotAvailable();
+    }
     return;
   }
 
@@ -61,6 +66,12 @@ async function handleStatus(ctx: CLIContext): Promise<void> {
   printModelInfo(status);
   printFeatures();
   printTestHint();
+}
+
+function printUnknownStatus(status: Awaited<ReturnType<typeof getDetailedOpenClawStatus>>): void {
+  console.log(`  ${theme.warning(indicators.warning)} Status:       ${theme.warning('Unknown (port 18789 in use)')}`);
+  console.log();
+  printUnknownGatewayGuidance(status.error, msg => console.log(theme.error(msg)));
 }
 
 function printNotAvailable(): void {

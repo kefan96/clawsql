@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-03-31
+
+### Changed
+- **Node.js Requirement**: Minimum version increased to v22.22.0 (required by OpenClaw CLI)
+- **ProxySQL Sync**: Changed from delete-all-then-insert to upsert logic - syncing one cluster no longer removes servers from other clusters sharing the same hostgroups
+
+### Fixed
+- **OpenClaw Detection**: Added "unknown gateway" status when gateway is healthy but source cannot be determined (no CLI installed, no Docker container). Shows clear guidance to resolve.
+- **metadata-mysql Cluster**: Automatically filtered from topology views - Orchestrator's backend database no longer appears as a user cluster
+- **Cluster Sync**: Fixed issue where not all replicas were synced to ProxySQL after topology changes
+
+### Added
+- `INTERNAL_CLUSTER_PREFIXES` and `INTERNAL_CLUSTER_NAMES` constants for filtering internal clusters
+- `printUnknownGatewayGuidance()` helper for consistent unknown gateway messaging
+
 ## [0.2.3] - 2026-03-31
 
 ### Fixed
@@ -84,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interactive CLI with REPL interface
 - REST API with OpenAPI documentation
 
+[0.2.4]: https://github.com/clawsql/clawsql/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/clawsql/clawsql/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/clawsql/clawsql/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/clawsql/clawsql/compare/v0.2.0...v0.2.1

@@ -29,6 +29,9 @@ export {
   configureModelProvider,
   testOpenClawConnection,
   getDetailedOpenClawStatus,
+  printUnknownGatewayGuidance,
+  INTERNAL_CLUSTER_PREFIXES,
+  INTERNAL_CLUSTER_NAMES,
   SUPPORTED_PROVIDERS,
 } from './openclaw-integration.js';
 export type { ModelProviderInfo, OpenClawOptions, OpenClawStatus } from './openclaw-integration.js';
