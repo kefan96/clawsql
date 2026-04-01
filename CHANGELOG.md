@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-04-01
+
+### Fixed
+- **OpenClaw Permission Denied**: Fixed startup failure on new machines where Docker
+  named volumes have root ownership but container runs as non-root user
+  - Entrypoint now falls back to user-writeable directories (${HOME}/.openclaw/)
+  - Added custom entrypoint mount to docker-compose.allinone.yml
+
+## [0.2.9] - 2026-04-01
+
+### Fixed
+- **Runtime Logging**: Moved `pino-pretty` back to dependencies for production use
+
 ## [0.2.8] - 2026-04-01
 
 ### Changed
