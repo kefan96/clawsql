@@ -17,6 +17,8 @@ services:
     ports:
       - "18789:18789"  # Gateway WebSocket port
       - "18790:18790"  # Control UI port
+    # Note: Named volumes may have permission issues if container runs as non-root.
+    # The entrypoint.sh handles this by falling back to user-writeable directories.
     environment:
       - OPENCLAW_GATEWAY_PORT=18789
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-clawsql-openclaw-token}
@@ -24,6 +26,7 @@ services:
       - OPENCLAW_WORKSPACE_DIR=/data/workspace
     volumes:
       - openclaw-data:/data
+      - ./openclaw/entrypoint.sh:/entrypoint.sh:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:18789/health || exit 1"]

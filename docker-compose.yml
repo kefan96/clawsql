@@ -20,6 +20,12 @@ services:
     hostname: openclaw
     network_mode: host
     entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    # Note: Named volumes may have permission issues if container runs as non-root.
+    # The entrypoint.sh handles this by falling back to user-writeable directories.
+    # Alternatively, uncomment the tmpfs mounts below for ephemeral storage:
+    # tmpfs:
+    #   - /data/state
+    #   - /data/workspace
     environment:
       - OPENCLAW_GATEWAY_PORT=18789
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-clawsql-openclaw-token}

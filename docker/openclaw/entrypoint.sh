@@ -4,11 +4,44 @@
 
 set -e
 
-CONFIG_FILE="/data/state/openclaw.json"
-STATE_DIR="/data/state"
+# Determine state directory - use OPENCLAW_STATE_DIR or default
+STATE_DIR="${OPENCLAW_STATE_DIR:-/data/state}"
+WORKSPACE_DIR="${OPENCLAW_WORKSPACE_DIR:-/data/workspace}"
+CONFIG_FILE="${STATE_DIR}/openclaw.json"
 
-# Ensure state directory exists
-mkdir -p "$STATE_DIR"
+# Ensure directories exist with proper error handling
+# Docker volumes may have root ownership when first created,
+# but containers often run as non-root users
+ensure_dir() {
+    local dir="$1"
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir" 2>/dev/null || {
+            echo "[openclaw-entrypoint] Warning: Cannot create $dir (permission denied)"
+
+            local home_state="${HOME:-/tmp}/.openclaw/state"
+            local home_workspace="${HOME:-/tmp}/.openclaw/workspace"
+
+            if [ "$dir" = "$STATE_DIR" ]; then
+                echo "[openclaw-entrypoint] Using fallback state directory: $home_state"
+                STATE_DIR="$home_state"
+                CONFIG_FILE="$STATE_DIR/openclaw.json"
+                mkdir -p "$STATE_DIR"
+            elif [ "$dir" = "$WORKSPACE_DIR" ]; then
+                echo "[openclaw-entrypoint] Using fallback workspace directory: $home_workspace"
+                WORKSPACE_DIR="$home_workspace"
+                mkdir -p "$WORKSPACE_DIR"
+            fi
+        }
+    fi
+}
+
+ensure_dir "$STATE_DIR"
+ensure_dir "$WORKSPACE_DIR"
+
+# Export updated directories in case fallback was used
+# This ensures openclaw.mjs uses the correct paths
+export OPENCLAW_STATE_DIR="$STATE_DIR"
+export OPENCLAW_WORKSPACE_DIR="$WORKSPACE_DIR"
 
 # Check if we need to run initial configuration
 if [ ! -f "$CONFIG_FILE" ]; then
